@@ -31,7 +31,7 @@ class EnvClient:
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            raise Exception(f"Request failed: {str(e)}")
+            raise Exception(f"Request failed: {str(e)}, data: {data}")
 
     def get_task_ids(
         self, env_type: str, split: str = "train", params: dict | None = None

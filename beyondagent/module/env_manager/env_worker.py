@@ -3,14 +3,14 @@ import uuid
 from beyondagent.client.env_client import EnvClient
 from beyondagent.module.agent_flow.base_agent_flow import BaseAgentFlow
 from beyondagent.schema.trajectory import Trajectory
-
+from omegaconf import DictConfig
 
 class EnvWorker(object):
 
-    def __init__(self, env_type: str, task_id: str, instance_id: str = uuid.uuid4().hex, thread_index: int = None,
+    def __init__(self, env_type: str, task_id: str, instance_id: str = uuid.uuid4().hex, thread_index: int = None, config: DictConfig = None,
                  **kwargs):
-        super.__init__(**kwargs)
-        self.env = EnvClient()
+        # super.__init__(**kwargs)
+        self.env = EnvClient(base_url=config.beyond_agent.env_url)
         self.env_type: str = env_type
         self.task_id: str = task_id
         self.instance_id: str = instance_id
@@ -27,7 +27,7 @@ class EnvWorker(object):
                                             steps=[state_message],
                                             query=state_message["content"])
 
-        trajectory: Trajectory = agent_flow.execute(trajectory=trajectory, env=self.env, **kwargs)
+        trajectory: Trajectory = agent_flow.execute(trajectory=trajectory, env=self.env, instance_id=self.instance_id, **kwargs)
 
         self.env.release_instance(self.instance_id)
 

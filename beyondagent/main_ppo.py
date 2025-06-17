@@ -25,7 +25,7 @@ import ray
 
 from verl.trainer.ppo.reward import load_reward_manager
 
-from .ba_ray_trainer import BeyondAgentRayPPOTrainer
+from beyondagent.module.trainer.ba_ray_trainer import BeyondAgentRayPPOTrainer
 
 
 def get_custom_reward_fn(config):

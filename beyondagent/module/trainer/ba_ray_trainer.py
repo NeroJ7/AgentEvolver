@@ -41,7 +41,7 @@ from verl.trainer.ppo.ray_trainer import (AdvantageEstimator, RayPPOTrainer,
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.metric import reduce_metrics
 
-
+from beyondagent.schema.task import Task
 
 def parse_reward_from_dataproto(data: DataProto, return_dict=False) -> dict | torch.Tensor:
     """
@@ -90,7 +90,17 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # TODO at jinli
-        self.remote_batch_experience_summarize = ray.remote(batch_experience_summarize)
+        # self.remote_batch_experience_summarize = ray.remote(batch_experience_summarize)
+
+    def init_workers(self):
+        super().init_workers()
+        self.reward_fn = parse_reward_from_dataproto
+        self.val_reward_fn = parse_reward_from_dataproto
+        from ..env_manager.env_manager import ParallelEnvManager
+        self.explorer_manager = ParallelEnvManager(
+            config=self.config, 
+            async_rollout_manager=self.async_rollout_manager
+        )
 
     def _validate(self):
         data_source_lst = []
@@ -147,7 +157,16 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                 test_output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(test_gen_batch_padded)
             else:
                 self.async_rollout_manager.wake_up()
-                test_output_gen_batch_padded = self.explorer_manager.rollout(test_gen_batch_padded)
+                tasks = [Task(
+                            task_id=test_gen_batch_padded.non_tensor_batch["extras"][i]["task_id"], 
+                            query=test_gen_batch_padded.non_tensor_batch["raw_prompt"][i],
+                            env_type=self.config.beyond_agent.env_type
+                         ) for i in range(len(test_gen_batch_padded))]
+                # print(tasks)
+                trajectories = self.explorer_manager.rollout(tasks, mode="validate")
+                print(trajectories[0])
+                import pdb;pdb.set_trace()
+                # test_output_gen_batch_padded = self.explorer_manager.rollout(test_gen_batch_padded)
                 # test_output_gen_batch_padded = self.async_rollout_manager.generate_sequences(test_gen_batch_padded)
                 self.async_rollout_manager.sleep()
 
@@ -210,15 +229,6 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
 
         return metric_dict
 
-    def init_workers(self):
-        super().init_workers()
-        self.reward_fn = parse_reward_from_dataproto
-        self.val_reward_fn = parse_reward_from_dataproto
-        self.explorer_manager = ParallelEnvManager(
-            config=self.config, 
-            async_rollout_manager=self.async_rollout_manager
-        )
-
     def fit(self):
         """
         The training loop of PPO.
@@ -263,7 +273,7 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
         last_val_metrics = Nonetrain_dataloader
 
         for epoch in range(self.config.trainer.total_epochs):
-            for batch_dict in self.:
+            for batch_dict in self.train_dataloader:
                 metrics = {}
                 timing_raw = {}
                 batch: DataProto = DataProto.from_single_dict(batch_dict)

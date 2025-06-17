@@ -2,19 +2,20 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict
 from typing import List
 from typing import Literal
-
+import copy
 from omegaconf import DictConfig
 from verl import DataProto
 from verl.workers.rollout.async_server import AsyncLLMServerManager
 
+from beyondagent.module.env_manager.env_worker import EnvWorker
 from beyondagent.module.agent_flow.base_agent_flow import BaseAgentFlow
 from beyondagent.module.agent_flow.env_agent_flow import AgentFlow
-from beyondagent.module.explorer_manager.env_worker import EnvWorker
 from beyondagent.schema.trajectory import Trajectory
+from beyondagent.schema.task import Task
 
 
-class BaseParallelEnvManager(object):
-    def __init__(self, config: DictConfig, async_rollout_manager: AsyncLLMServerManager, max_parallel: int = 128,
+class ParallelEnvManager(object):
+    def __init__(self, config: DictConfig, async_rollout_manager: AsyncLLMServerManager, max_parallel: int = 32,
                  **kwargs):
         super().__init__(**kwargs)
 
@@ -42,10 +43,11 @@ class BaseParallelEnvManager(object):
             if custom_sampling_params:
                 updated_sampling_params.update(custom_sampling_params)
 
-            output_messages = []
-            self.async_rollout_manager.submit_chat_completions(messages=messages,
+            # output_messages = []
+            input_messages = copy.deepcopy(messages)
+            self.async_rollout_manager.submit_chat_completions(messages=input_messages,
                                                                sampling_params=updated_sampling_params)
-            return output_messages
+            return input_messages[len(messages):]
 
         return llm_chat
 
@@ -71,7 +73,7 @@ class BaseParallelEnvManager(object):
         agent_flow: BaseAgentFlow = AgentFlow(llm_chat_fn=llm_chat_fn, tokenizer=self.tokenizer, **kwargs)
 
         # FIXME pass env_type & task_id
-        env_worker = EnvWorker(env_type=task.env_type, task_id=task.task_id, thread_index=thread_index)
+        env_worker = EnvWorker(env_type=task.env_type, task_id=task.task_id, thread_index=thread_index, config=self.config)
         trajectory: Trajectory = env_worker.execute(data_id=data_id, rollout_id=rollout_id, agent_flow=agent_flow)
 
         return trajectory

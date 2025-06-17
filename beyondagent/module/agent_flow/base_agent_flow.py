@@ -13,8 +13,7 @@ class BaseAgentFlow(object):
                  max_model_len: int = 20480,
                  max_env_len: int = 1024,
                  **kwargs):
-        super.__init__(**kwargs)
-
+        # super.__init__(**kwargs)
         self.llm_chat_fn: Callable = llm_chat_fn
         self.tokenizer = tokenizer
         self.max_steps: int = max_steps

@@ -15,7 +15,7 @@ class AgentFlow(BaseAgentFlow):
         self.response_template_ids = self.tokenizer.encode("<|im_start|>assistant\n")
         self.em_client = EMClient()
 
-    def execute(self, trajectory: Trajectory, env: EnvClient, **kwargs) -> Trajectory:
+    def execute(self, trajectory: Trajectory, env: EnvClient, instance_id: str, **kwargs) -> Trajectory:
         # add by jinli.yl
         if self.enable_experience:
             history_experience = self.em_client.call_context_generator(trajectory=trajectory,
@@ -36,10 +36,14 @@ class AgentFlow(BaseAgentFlow):
 
             # callback llm server, messages.size=1
             llm_output = self.llm_chat_fn(trajectory.steps)
+            assert len(llm_output) == 1
             trajectory.steps.extend(llm_output)
 
-            env_output = env.step(trajectory.id, llm_output[0])
+            env_output = env.step(instance_id, llm_output[0])
             state_content: str = env_output["state"]["content"]
+            # yunpeng add: 
+            # if env_output["state"]["role"]=="tool":
+            #     env_output["state"]["role"] = "user"
 
             if len(self.tokenizer(state_content, return_tensors="pt", padding=False)["input_ids"][
                        0]) > self.max_env_len:
@@ -49,8 +53,10 @@ class AgentFlow(BaseAgentFlow):
             trajectory.is_terminated = env_output["is_terminated"]
 
             # TODO require env
-            trajectory.reward.outcome = env_output["reward"]["outcome"]
-            trajectory.reward.description = env_output["reward"]["description"]
+            # trajectory.reward.outcome = env_output["reward"]["outcome"]
+            # trajectory.reward.description = env_output["reward"]["description"]
+            trajectory.reward.outcome = env_output["reward"]
+            trajectory.reward.description = "Outcome 1 = success, 0 = failure."
 
             if trajectory.is_terminated:
                 break
