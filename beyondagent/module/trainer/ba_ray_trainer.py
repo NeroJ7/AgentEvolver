@@ -465,6 +465,7 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                             multi_turn=self.config.actor_rollout_ref.rollout.multi_turn.enable,
                             config=self.config.algorithm,
                         )
+                        # breakpoint()
 
                     # update critic
                     if self.use_critic:

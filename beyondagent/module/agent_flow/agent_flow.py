@@ -40,12 +40,16 @@ class AgentFlow(BaseAgentFlow):
                                                              add_generation_prompt=True)
             current_token_len = len(self.tokenizer(prompt_text, return_tensors="pt", padding=False)["input_ids"][0])
 
-            if current_token_len > self.max_model_len:
+            # yunpeng 0623: to prevent add an imend token to an uncompleted seq, 
+            # because the message-type output will be applied chat_template.
+            max_response_length = self.config.actor_rollout_ref.rollout.response_length
+            if current_token_len + max_response_length > self.max_model_len:
                 logger.warning(f"exceed max model len={self.max_model_len}")
                 break
 
             # callback llm server, messages.size=1
-            llm_output = self.llm_chat_fn(trajectory.steps, custom_sampling_params={"max_completion_tokens": self.max_model_len-current_token_len})
+            llm_output = self.llm_chat_fn(trajectory.steps)
+            # llm_output = self.llm_chat_fn(trajectory.steps, custom_sampling_params={"max_completion_tokens": self.max_model_len-current_token_len})
             assert len(llm_output) == 1, llm_output
             trajectory.steps.extend(llm_output)
 
