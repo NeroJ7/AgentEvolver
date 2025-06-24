@@ -1,3 +1,5 @@
+import time
+
 from loguru import logger
 
 from beyondagent.client.em_client import EMClient
@@ -49,11 +51,14 @@ class AgentFlow(BaseAgentFlow):
                 break
 
             # callback llm server, messages.size=1
+            t_start = time.time()
             llm_output = self.llm_chat_fn(trajectory.steps, request_id=request_id)
+            time_cost = round(time.time() - t_start, 2)
             new_request_id = llm_output.pop("request_id", None)
             logger.info(f"llm_output={llm_output} "
                         f"new_request_id={new_request_id} "
-                        f"request_id={request_id}")
+                        f"request_id={request_id} "
+                        f"time_cost={time_cost}")
             request_id = new_request_id
 
             trajectory.steps.append(llm_output)
