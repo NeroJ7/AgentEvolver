@@ -1,4 +1,5 @@
 import copy
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Literal
 
@@ -23,12 +24,13 @@ from beyondagent.schema.trajectory import Trajectory, Sample
 
 class ParallelEnvManager(object):
     def __init__(self, config: DictConfig, async_rollout_manager: BaAsyncLLMServerManager, max_parallel: int,
-                 **kwargs):
+                 max_llm_retries: int, **kwargs):
         super().__init__(**kwargs)
 
         self.config: DictConfig = config
         self.async_rollout_manager: BaAsyncLLMServerManager = async_rollout_manager
         self.max_parallel: int = max_parallel
+        self.max_llm_retries: int = max_llm_retries
 
         self.rollout_n = config.actor_rollout_ref.rollout.n
         self.model_name = self.async_rollout_manager.chat_scheduler.model_name
@@ -55,9 +57,16 @@ class ParallelEnvManager(object):
             input_messages = copy.deepcopy(messages)
             weighted_addresses = self.async_rollout_manager.chat_scheduler.weighted_addresses
             logger.info(f"weighted_addresses={weighted_addresses}")
-            self.async_rollout_manager.submit_chat_completions(messages=input_messages,
-                                                               sampling_params=updated_sampling_params,
-                                                               request_id=request_id)
+            for i in range(self.max_llm_retries):
+                try:
+                    self.async_rollout_manager.submit_chat_completions(messages=input_messages,
+                                                                       sampling_params=updated_sampling_params,
+                                                                       request_id=request_id)
+                    break
+
+                except Exception as e:
+                    logger.exception(f"rollout_server.{i} error: {e.args}")
+                    time.sleep(i + 1)
 
             return input_messages[-1]
 
@@ -106,7 +115,7 @@ class ParallelEnvManager(object):
                                              rollout_id=str(rollout_id), mode=mode, thread_index=thread_index)
                     futures.append(future)
 
-            for future in tqdm(futures):
+            for future in tqdm(futures, desc="collect rollout result"):
                 # do not fail silently
                 result = future.result()
                 trajectory_list.append(result)
