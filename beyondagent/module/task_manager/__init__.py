@@ -3,6 +3,7 @@ import copy
 import functools
 import json
 import os
+import threading
 import time
 from typing import (
     Callable,
@@ -45,6 +46,7 @@ class TaskManagerProps(TypedDict):
     exploration_llm_temperature: NotRequired[float]
     exploration_llm_top_p: NotRequired[float]
     exploration_llm_top_k: NotRequired[int]
+    task_summary_history_length: NotRequired[int]
 
 
 # TODO: 筛选
@@ -71,14 +73,15 @@ class TaskManager(object):
         self._env_service_url = env_service_url
         self._tokenizer = tokenizer  # TODO: 这玩意似乎不该在这
         self._max_llm_retries = kwargs["max_llm_retries"] or 3
-        self._max_explore_step = kwargs["max_explore_step"] or 20
+        self._max_explore_step = kwargs["max_explore_step"] or 10
         self._num_exploration_threads = kwargs["num_explore_threads"] or 10
+        self._n = kwargs["n"]
         self._exploration_llm_temperature = kwargs.get(
             "exploration_llm_temperature", 1.0
         )
         self._exploration_llm_top_p = kwargs.get("exploration_llm_top_p", 1.0)
         self._exploration_llm_top_k = kwargs.get("exploration_llm_top_k", 1)
-        self._n = kwargs["n"]
+        self._task_summary_history_length = kwargs.get("task_summary_history_length", self._max_explore_step)
 
         self._filters: list[TaskPostFilter] = []
 
@@ -88,7 +91,7 @@ class TaskManager(object):
     def generate_task(self, tasks: Sequence[Task]) -> list[TaskObjective]:
         task_q = list(copy.copy(tasks)) * self._n
         res = []
-        # 每次最多探索所有不同任务，或者最大线程个任务
+        # 每次最多探索所有不同任务，或者最大线程个任务，防止同批次中生成相同任务
         parallel_num = min(self._num_exploration_threads, len(tasks))
         for i in range(0, len(task_q), parallel_num):
             # TODO: 把已经有的 task 加入 experience，阻止再次探索重复任务
@@ -114,6 +117,8 @@ class TaskManager(object):
             config: DictConfig
         """
         fa = self
+        
+        lock=threading.Lock()
 
         # wrapper for data auto-reloading
         class AutoReloadDataset(IterableDataset):
@@ -123,29 +128,34 @@ class TaskManager(object):
                 self._dataset = OnflyRlDataset(release_used_dataset=True)
 
             def reload(self):
-                delta = []
-                for task in tasks:
-                    delta.append(task)
-                    if len(delta) == self._bs:
-                        break
+                # avoid data loader calling reload multiple times
+                with lock:
+                    # avoid data loader calling reload multiple times
+                    if self._dataset.num_rest_data > 0:
+                        return self._dataset.num_rest_data
 
-                ls = fa.generate_task(delta)
-                while len(ls) < self._bs * fa._n:
-                    logger.debug("failed to generate enough tasks, retrying")
+                    delta = []
+                    for task in tasks:
+                        delta.append(task)
+                        if len(delta) == self._bs:
+                            break
+
                     ls = fa.generate_task(delta)
+                    while len(ls) < self._bs * fa._n:
+                        logger.debug("failed to generate enough tasks, retrying")
+                        ls = fa.generate_task(delta)
 
-                self._dataset.append_dataset(to_rl_dataset(ls, tokenizer, config))
-                return self._dataset.num_rest_data
+                    self._dataset.append_dataset(to_rl_dataset(ls, tokenizer, config))
+                    return self._dataset.num_rest_data
 
             def __iter__(self):
                 return self
 
             def __next__(self):
-                print("try get next data: ", self._dataset.num_rest_data)
                 if self._dataset.num_rest_data == 0:
-                    print("no data left, reloading")
+                    logger.debug("no data left, reloading")
                     if self.reload() == 0:
-                        print("no task left, stop iteration")
+                        logger.debug("no task left, stop reloading and iteration")
                         raise StopIteration
                 return next(self._dataset)
 
@@ -230,7 +240,7 @@ class TaskManager(object):
         llm_fn = self._get_llm_chat_fn()
         old_objectives = self._old_retrival.retrieve_objectives(task)
         system_prompt, user_prompt = get_task_summarize_prompt(
-            [trajectory], old_objectives
+            [trajectory], old_objectives, len_history=self._task_summary_history_length
         )
         messages = [
             {"role": "system", "content": system_prompt},
@@ -325,11 +335,11 @@ def test(config):
         max_explore_step=5,
         max_llm_retries=3,
         num_explore_threads=2,
-        n=2,
+        n=1,
     )
     task = Task(task_id="0a9d82a_1", env_type="appworld")
     tasks = [task] * 100
-    dataset = manager.get_dataset(iter(tasks), bs=1, tokenizer=tokenizer, config=config)
+    dataset = manager.get_dataset(iter(tasks), bs=2, tokenizer=tokenizer, config=config)
     dataloader = DataLoader(
         dataset, batch_size=2, shuffle=False, collate_fn=default_collate_fn
     )

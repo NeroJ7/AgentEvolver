@@ -109,7 +109,6 @@ Please avoid repeating the objectives in the current exploration.
 
 Please identify the specific tasks the agent is attempting to complete in these interactions, and abstract them into clear task descriptions and queries following the specified format.
 """
-    print("old_objectives: ", objectives)
 
     return AGENT_SUMMARIZE_SYSTEM_PROMPT, user_prompt
 
