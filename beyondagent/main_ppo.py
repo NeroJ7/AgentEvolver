@@ -63,7 +63,7 @@ def get_custom_reward_fn(config):
     return wrapped_fn
 
 
-@hydra.main(config_path="config", config_name="beyond_agent_dataflow", version_base=None)
+@hydra.main(config_path="../config", config_name="beyond_agent_dataflow", version_base=None)
 def main(config):
     run_ppo(config)
 
@@ -261,4 +261,11 @@ def create_rl_sampler(data_config, dataset):
 
 
 if __name__ == "__main__":
+    import shutil
+    # this will break ray's initialization
+    # def _safe_guard(name:str):
+    #     import traceback
+    #     traceback.print_stack()
+    #     print(f"{name} is overwritten")
+    # shutil.rmtree=lambda *args, **kwargs: _safe_guard("rmtree")
     main()

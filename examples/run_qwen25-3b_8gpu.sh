@@ -19,6 +19,7 @@ python3 -m beyondagent.main_ppo \
     env_service.env_url=$env_url \
     algorithm.adv_estimator=grpo \
     data.train_batch_size=32 \
+    task_manager.bs=32 \
     data.max_prompt_length=4096 \
     data.max_response_length=20480 \
     data.filter_overlong_prompts=True \
@@ -29,7 +30,7 @@ python3 -m beyondagent.main_ppo \
     actor_rollout_ref.rollout.response_length=2048 \
     actor_rollout_ref.rollout.max_model_len=20480 \
     actor_rollout_ref.rollout.temperature=0.9 \
-    actor_rollout_ref.model.path=/mnt/data_cpfs/xielipeng.xlp/models/Qwen3-8B \
+    actor_rollout_ref.model.path=/mnt/data_cpfs/xielipeng.xlp/models/Qwen2.5-3B-Instruct \
     actor_rollout_ref.rollout.use_qwen3=False \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
@@ -54,7 +55,7 @@ python3 -m beyondagent.main_ppo \
     trainer.n_gpus_per_node=8 \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
-    trainer.project_name='beyondagent' \
+    trainer.project_name='ba-taskmanager' \
     trainer.experiment_name='qwen25_3b-taskmanager-debug' \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \

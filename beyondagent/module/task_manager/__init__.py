@@ -13,7 +13,6 @@ from typing import (
     Sequence,
     TypedDict,
     Unpack,
-    override,
 )
 
 import hydra
@@ -130,6 +129,7 @@ class TaskManager(object):
             def reload(self):
                 # avoid data loader calling reload multiple times
                 with lock:
+                    logger.debug('reloading...') # this should only happen once
                     # avoid data loader calling reload multiple times
                     if self._dataset.num_rest_data > 0:
                         return self._dataset.num_rest_data
@@ -153,7 +153,7 @@ class TaskManager(object):
 
             def __next__(self):
                 if self._dataset.num_rest_data == 0:
-                    logger.debug("no data left, reloading")
+                    logger.debug("no data left")
                     if self.reload() == 0:
                         logger.debug("no task left, stop reloading and iteration")
                         raise StopIteration
@@ -199,7 +199,6 @@ class TaskManager(object):
 
         old_objectives = self._old_retrival.retrieve_objectives(task)
 
-        assert isinstance(task.query, str)
         traj = env_worker.execute(
             data_id=data_id,
             rollout_id=rollout_id,
@@ -295,13 +294,11 @@ class NaiveTaskObjectiveRetrieval(TaskObjectiveRetrieval):
         # 目前单次训练中只会有同一个 env_type 的 task，所以可以直接使用 task_id as key
         self._mp: dict[str, list[TaskObjective]] = {}
 
-    @override
     def retrieve_objectives(self, task: Task) -> list[TaskObjective]:
         if task.task_id not in self._mp:
             return []
         return self._mp[task.task_id]
 
-    @override
     def add_objective(self, objective: TaskObjective):
         if objective.task.task_id not in self._mp:
             self._mp[objective.task.task_id] = []
@@ -313,7 +310,7 @@ class NaiveTaskObjectiveRetrieval(TaskObjectiveRetrieval):
 
 
 @hydra.main(
-    config_path="/Users/cc/projects/BeyondAgent/config",
+    config_path="../../../config",
     config_name="beyond_agent_dataflow",
     version_base=None,
 )

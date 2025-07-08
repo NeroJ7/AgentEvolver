@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import json
 import os
 import time
-from typing import Any, Optional, Protocol, override
+from typing import Any, Optional, Protocol
 
 from loguru import logger
 import requests
@@ -27,7 +27,6 @@ class DashScopeClient:
             "Content-Type": "application/json"
         }
     
-    @override
     def chat(self, messages: list[dict[str, str]], sampling_params: dict[str, Any]) -> str:
         return self.chat_with_retry(messages, **sampling_params)
     

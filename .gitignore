@@ -15,7 +15,6 @@
 __pycache__/
 *.py[cod]
 *$py.class
-dataset/*
 tensorflow/my_graph/*
 .idea/
 # C extensions
@@ -23,7 +22,6 @@ tensorflow/my_graph/*
 
 # Distribution / packaging
 .Python
-env/
 build/
 develop-eggs/
 dist/
@@ -97,7 +95,6 @@ celerybeat-schedule
 # virtualenv
 venv/
 .venv/
-ENV/
 
 # Spyder project settings
 .spyderproject
@@ -129,5 +126,7 @@ python_log
 experiments
 
 
-# local file
+# local file (cc)
 /_resources
+/sync_*.sh
+/best_logger

@@ -1,5 +1,5 @@
 import abc
-from typing import Sequence, override
+from typing import Sequence
 
 from beyondagent.schema.task import TaskObjective
 
@@ -11,7 +11,6 @@ class TaskPostFilter(abc.ABC):
 
 
 class NaiveTaskPostFilter(TaskPostFilter):
-    @override
     def filter(self, tasks: Sequence[TaskObjective]) -> list[TaskObjective]:
         tasks = list(tasks)
         tasks.sort(key=lambda x: x.confidence or 0, reverse=True)

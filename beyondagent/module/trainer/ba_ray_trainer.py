@@ -28,8 +28,10 @@ from typing import List
 import numpy as np
 import ray
 import torch
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, open_dict
 from tqdm import tqdm
+from torch.utils.data import SequentialSampler,IterableDataset
+from torchdata.stateful_dataloader import StatefulDataLoader
 from verl import DataProto
 from verl.single_controller.ray import RayClassWithInitArgs, create_colocated_worker_cls
 from verl.trainer.ppo.core_algos import agg_loss
@@ -44,6 +46,7 @@ from verl.trainer.ppo.ray_trainer import (AdvantageEstimator, RayPPOTrainer,
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
 from verl.utils.metric import reduce_metrics
 
+from beyondagent.client.llm_client import DashScopeClient
 from beyondagent.client.em_client import EMClient
 from beyondagent.module.env_manager.env_manager import ParallelEnvManager
 from beyondagent.module.task_manager import adapter as task_adapter
@@ -106,11 +109,8 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
         self._collate_fn=kwargs.get("collate_fn")
         self._train_sampler=kwargs.get("train_sampler")
         self._train_tasks=task_adapter.convert_to_tasks(self.train_dataset,self.config.env_service.env_type) # type: ignore
-        self._val_tasks=task_adapter.convert_to_tasks(self.val_dataset,self.config.env_service.env_type) # type: ignore
         del self.train_dataloader
         del self.train_dataset
-        del self.val_dataloader
-        del self.val_dataset
 
 
     def init_workers(self):
@@ -207,18 +207,92 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
         
         self.task_manager=TaskManager(
             config=self.config,
-            llm_client=self.async_rollout_manager,
+            llm_client=DashScopeClient(), # TODO: use policy model
             old_retrival=NaiveTaskObjectiveRetrieval(),
             tokenizer=self.tokenizer,
-            env_service_url=self.config.env_service.base_url,
+            env_service_url=self.config.env_service.env_url,
             max_llm_retries=self.config.task_manager.max_llm_retries,
             max_explore_step=self.config.task_manager.max_explore_step,
             num_explore_threads=self.config.task_manager.num_explore_threads,
             n=self.config.task_manager.n,
         )
-        train_dataset=self.task_manager.get_dataset(tasks=self._train_tasks,bs=self.config.task_manager.bs,tokenizer=self.tokenizer,config=self.config)
+        train_dataset=self.task_manager.get_dataset(tasks=self._train_tasks,bs=self.config.task_manager.bs,tokenizer=self.tokenizer,config=self.config.data)
         # reinit dataloader to use the new dataset
-        self._create_dataloader(train_dataset,self.val_dataset,self._collate_fn,self._train_sampler)
+        # sampler must be None
+        self._create_dataloader(train_dataset,self.val_dataset,self._collate_fn,None)
+    
+    
+    def _create_dataloader(self, train_dataset, val_dataset, collate_fn, train_sampler):
+        """
+        Creates the train and validation dataloaders.
+        """
+        # TODO: we have to make sure the batch size is divisible by the dp size
+        from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
+
+        if train_dataset is None:
+            train_dataset = create_rl_dataset(self.config.data.train_files, self.config.data, self.tokenizer, self.processor)
+        if val_dataset is None:
+            val_dataset = create_rl_dataset(self.config.data.val_files, self.config.data, self.tokenizer, self.processor)
+        self.train_dataset, self.val_dataset = train_dataset, val_dataset
+        
+        # 我需要一个不做多余事情的 dataloader
+        # if train_sampler is None:
+        #     train_sampler = create_rl_sampler(self.config.data, self.train_dataset)
+        if collate_fn is None:
+            from verl.utils.dataset.rl_dataset import collate_fn as default_collate_fn
+
+            collate_fn = default_collate_fn
+
+        self.train_dataloader = StatefulDataLoader(
+            dataset=self.train_dataset,
+            batch_size=self.config.data.get("gen_batch_size", self.config.data.train_batch_size),
+            num_workers=self.config.data.get("dataloader_num_workers", 8),
+            drop_last=True,
+            collate_fn=collate_fn,
+            sampler=train_sampler,
+        )
+
+        val_batch_size = self.config.data.val_batch_size  # Prefer config value if set
+        if val_batch_size is None:
+            val_batch_size = len(self.val_dataset)
+
+        self.val_dataloader = StatefulDataLoader(
+            dataset=self.val_dataset,
+            batch_size=val_batch_size,
+            num_workers=self.config.data.get("dataloader_num_workers", 8),
+            shuffle=self.config.data.get("validation_shuffle", True),
+            drop_last=False,
+            collate_fn=collate_fn,
+        )
+        
+        # train dataloader is on-fly, so we don't need to check the size
+        # assert len(self.train_dataloader) >= 1, "Train dataloader is empty!"
+        assert len(self.val_dataloader) >= 1, "Validation dataloader is empty!"
+
+        
+        if not isinstance(train_dataset,IterableDataset):
+            total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
+            print(f"Size of train dataloader: {len(self.train_dataloader)}, Size of val dataloader: {len(self.val_dataloader)}")
+        else:
+            # FIXME: need a elegant way to set total_training_steps
+            total_training_steps = len(self._train_tasks)*self.config.trainer.total_epochs
+            print(f"Size of train dataloader: unknown, Size of val dataloader: {len(self.val_dataloader)}")
+
+        if self.config.trainer.total_training_steps is not None:
+            total_training_steps = self.config.trainer.total_training_steps
+
+        self.total_training_steps = total_training_steps
+        print(f"Total training steps: {self.total_training_steps}")
+
+        try:
+            OmegaConf.set_struct(self.config, True)
+            with open_dict(self.config):
+                if OmegaConf.select(self.config, "actor_rollout_ref.actor.optim"):
+                    self.config.actor_rollout_ref.actor.optim.total_training_steps = total_training_steps
+                if OmegaConf.select(self.config, "critic.optim"):
+                    self.config.critic.optim.total_training_steps = total_training_steps
+        except Exception as e:
+            print(f"Warning: Could not set total_training_steps in config. Structure missing? Error: {e}")
 
     def _validate_config(self):
         # 0623 yunpeng add. keep the same as the original func except for the param of tool_config_path

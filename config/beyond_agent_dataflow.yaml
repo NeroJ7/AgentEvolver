@@ -44,6 +44,7 @@ env_service:
 
 task_manager:
   n: 2
+  bs: 32 # this should be the same as train_batch_size
   max_llm_retries: 3
   max_explore_step: 10
   num_explore_threads: ${thread_pool.max_workers}
