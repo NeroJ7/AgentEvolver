@@ -7,6 +7,7 @@ from verl.workers.rollout.async_server import AsyncLLMServerManager
 class BaAsyncLLMServerManager(AsyncLLMServerManager):
     
     def chat(self, messages: list[dict[str, str]], sampling_params: dict[str, Any]) -> str:
+        """todo"""
         self.submit_chat_completions(messages.copy(), sampling_params)
         return messages[-1]['content']
 
