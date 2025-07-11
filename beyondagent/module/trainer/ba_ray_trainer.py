@@ -46,6 +46,7 @@ from verl.trainer.ppo.ray_trainer import (AdvantageEstimator, RayPPOTrainer,
                                           compute_advantage,
                                           compute_response_mask, Role)
 from verl.trainer.ppo.reward import compute_reward, compute_reward_async
+from verl.utils.dataset.rl_dataset import RLHFDataset
 from verl.utils.metric import reduce_metrics
 
 from beyondagent.client.llm_client import DashScopeClient
@@ -110,9 +111,6 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
         
         self._collate_fn=kwargs.get("collate_fn")
         self._train_sampler=kwargs.get("train_sampler")
-        self._train_tasks=task_adapter.convert_to_tasks(self.train_dataset,self.config.env_service.env_type) # type: ignore
-        del self.train_dataloader
-        del self.train_dataset
 
 
     def init_workers(self):
@@ -225,7 +223,11 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
             n=self.config.task_manager.n,
             task_summary_history_length=self.config.task_manager.task_summary_history_length,
         )
-        train_dataset=self.task_manager.get_or_load_full_dataset(tasks=self._train_tasks,filepath=self.config.task_manager.persistent_filepath,tokenizer=self.tokenizer,config=self.config.data,processor=self.processor)
+        assert isinstance(self.train_dataset,RLHFDataset), "train_dataset must be RLHFDataset"
+        self.task_manager.load_tasks_from_dataset(self.train_dataset,env_type=self.config.env_service.env_type)
+        del self.train_dataset
+        del self.train_dataloader
+        train_dataset=self.task_manager.get_or_load_full_dataset(filepath=self.config.task_manager.persistent_filepath,tokenizer=self.tokenizer,config=self.config.data,processor=self.processor)
         train_sampler=self._train_sampler
         # reinit dataloader to use the new dataset
         self._create_dataloader(train_dataset,self.val_dataset,self._collate_fn,train_sampler)
@@ -285,7 +287,7 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
             print(f"Size of train dataloader: {len(self.train_dataloader)}, Size of val dataloader: {len(self.val_dataloader)}")
         else:
             # FIXME: need a elegant way to set total_training_steps
-            total_training_steps = len(self._train_tasks)*self.config.trainer.total_epochs
+            total_training_steps = len(self.task_manager.seed_tasks)*self.config.trainer.total_epochs
             print(f"Size of train dataloader: unknown, Size of val dataloader: {len(self.val_dataloader)}")
 
         if self.config.trainer.total_training_steps is not None:

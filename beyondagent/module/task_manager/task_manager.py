@@ -21,6 +21,7 @@ from loguru import logger
 from omegaconf import DictConfig
 from torch.utils.data import IterableDataset,Dataset
 from tqdm import tqdm
+from beyondagent.client.env_client import EnvClient
 from beyondagent.client.llm_client import DashScopeClient
 from beyondagent.module.agent_flow.agent_flow import AgentFlow
 from beyondagent.module.agent_flow.base_agent_flow import BaseAgentFlow
@@ -91,11 +92,27 @@ class TaskManager(object):
         self._use_original_tasks = kwargs.get("use_original_tasks", False)
 
         self._filters: list[TaskPostFilter] = []
+        
+        self._tasks: list[Task]=[]
+    
+    @property
+    def seed_tasks(self):
+        return self._tasks
+        
+    def load_tasks_from_dataset(self, dataset: RLHFDataset,*, env_type:str):
+        self._tasks.extend(adapter.convert_to_tasks(dataset,env_type=env_type))
+        logger.info(f"loaded tasks from dataset, current # of tasks={len(self._tasks)}")
+    
+    def load_tasks_from_environment(self,env:EnvClient,*,env_type:str,split:str,params:dict):
+        response=env.get_task_ids(env_type,split,params)
+        # FIXME: find the query and evaluator type
+        self._tasks.extend([Task(task_id=x,env_type=env_type) for x in response])
+        logger.info(f"loaded tasks from environment, current # of tasks={len(self._tasks)}")
 
     def register_filter(self, filter: TaskPostFilter):
         self._filters.append(filter)
 
-    def get_onthefly_dataset(self, tasks: Iterable[Task], bs: int, tokenizer, config,processor):
+    def get_onthefly_dataset(self, bs: int, tokenizer, config,processor):
         """
         Get dataset on the fly.
 
@@ -106,18 +123,16 @@ class TaskManager(object):
             config: DictConfig. Only for RLHFDataset.
         """
 
-        return AutoReloadDataset(self,tasks,bs,self._use_original_tasks,tokenizer=tokenizer,config=config,processor=processor)
+        return AutoReloadDataset(self,iter(self._tasks),bs,self._use_original_tasks,tokenizer=tokenizer,config=config,processor=processor)
     
-    def get_or_load_full_dataset(self,tasks:Sequence[Task],filepath:Optional[str],*,config,tokenizer,processor)->"FullDataset":
+    def get_or_load_full_dataset(self,filepath:Optional[str],*,config,tokenizer,processor)->"FullDataset":
         """Get the full dataset, or load from file.
         """     
-        dataset=FullDataset(self,tasks,self._use_original_tasks,tokenizer=tokenizer,config=config,processor=processor)
+        dataset=FullDataset(self,self._tasks,self._use_original_tasks,tokenizer=tokenizer,config=config,processor=processor)
         if filepath is not None and os.path.exists(filepath):
             logger.info(f"loading full dataset from {filepath}")
             dataset.load_from_file(filepath)
         else:
-            # FIXME: debug
-            raise ValueError("filepath does not exist")
             dataset.reload()
             if filepath is not None:
                 dataset.save_to_file(filepath)
@@ -260,6 +275,7 @@ class TaskManager(object):
 
 
 class FullDataset(Dataset):
+    
     """FullDataset
     """
     
@@ -280,7 +296,7 @@ class FullDataset(Dataset):
             self._objectives=[TaskObjective.parse_raw(line) for line in filter(lambda x: x.strip()!="", f.readlines())]
         # mix
         if self._mix_origins:
-            self._objectives.extend([TaskObjective(task=x,description=str(x.query),ground_truth="[env]",confidence=1.0,reward=None) for x in self._tasks])
+            self._objectives.extend([TaskObjective(task=x,ground_truth="[env]",confidence=1.0,reward=None) for x in self._tasks])
             logger.info("mixed original tasks")
         random.shuffle(self._objectives)
 
@@ -290,7 +306,7 @@ class FullDataset(Dataset):
         self._objectives=self._manager.generate_task(self._tasks,show_progress=True)
         # mix
         if self._mix_origins:
-            self._objectives.extend([TaskObjective(task=x,description=str(x.query),ground_truth="[env]",confidence=1.0,reward=None) for x in self._tasks])
+            self._objectives.extend([TaskObjective(task=x,ground_truth="[env]",confidence=1.0,reward=None) for x in self._tasks])
             logger.info("mixed original tasks")
         random.shuffle(self._objectives)
         self._dataset = to_rl_dataset(self._objectives, self._tokenizer, self._config,self._processor)
