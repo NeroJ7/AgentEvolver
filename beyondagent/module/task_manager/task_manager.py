@@ -98,6 +98,10 @@ class TaskManager(object):
     @property
     def seed_tasks(self):
         return self._tasks
+    
+    def load_tasks(self,tasks:Sequence[Task]):
+        self._tasks.extend(tasks)
+        logger.info(f"loaded tasks, current # of tasks={len(self._tasks)}")
         
     def load_tasks_from_dataset(self, dataset: RLHFDataset,*, env_type:str):
         self._tasks.extend(adapter.convert_to_tasks(dataset,env_type=env_type))
@@ -142,6 +146,7 @@ class TaskManager(object):
     def debug_get_original_seed_dataset(self,*,tokenizer,config,processor)->Dataset:
         """THIS IS A DEBUG FUNCTION, WILL BE REMOVED IN FUTURE.
         """
+        logger.info(f"getting original seed dataset, #={len(self._tasks)}")
         return OriginalDataset(self._tasks,tokenizer=tokenizer,config=config,processor=processor)
     
     
@@ -292,7 +297,6 @@ class OriginalDataset(Dataset):
         self._dataset = to_rl_dataset(self._objectives, self._tokenizer, self._config,self._processor)
         
         logger.warning(f"loaded original dataset: #task={len(self._tasks)} #rlhf={len(self._dataset)}")
-        exit(0)
     
     
     def __getitem__(self, index):

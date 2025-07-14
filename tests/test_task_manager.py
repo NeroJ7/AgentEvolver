@@ -34,7 +34,8 @@ def test(config):
     )
     task = Task(task_id="0a9d82a_1", env_type="appworld")
     tasks = [task] * 2
-    dataset = manager.get_or_load_full_dataset(tasks,'test.json',config=config.data,tokenizer=tokenizer,processor=None)
+    manager.load_tasks(tasks)
+    dataset = manager.debug_get_original_seed_dataset(config=config.data,tokenizer=tokenizer,processor=None)
     dataloader = DataLoader(
         dataset, batch_size=2, shuffle=False, collate_fn=default_collate_fn
     )

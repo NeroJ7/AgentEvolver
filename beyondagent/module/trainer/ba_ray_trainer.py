@@ -328,7 +328,7 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
         else:
             self.val_task_manager.load_tasks_from_environment(env_client,env_type=self.config.env_service.env_type,split="val")
         
-        # FIXME(cc): I use original seed data for trainset to test the new pipeline. 因为现在看起来加载的数据条数不太对
+        # FIXME(cc): I use original seed data for trainset to test the new pipeline. 用于 vanilla 测试
         # self.train_dataset=self.train_task_manager.get_or_load_full_dataset(filepath=self.config.task_manager.train_data_path,tokenizer=self.tokenizer,config=self.config.data,processor=self.processor)
         self.train_dataset=self.train_task_manager.debug_get_original_seed_dataset(tokenizer=self.tokenizer,config=self.config.data,processor=self.processor)
         self.val_dataset=self.val_task_manager.debug_get_original_seed_dataset(tokenizer=self.tokenizer,config=self.config.data,processor=self.processor)
