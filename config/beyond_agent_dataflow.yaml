@@ -20,6 +20,11 @@ actor_rollout_ref:
     entropy_mask:
       mode: null
       raw: null
+    advantage:
+      mode: semantic
+      good_scale: 1.0
+      bad_scale: 0.2
+      neg_bad_scale: -0.2
   rollout:
     name: vllm
     mode: async

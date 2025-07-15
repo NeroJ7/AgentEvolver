@@ -687,19 +687,51 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                         )
 
                         # # ===========  0714 shuchang: add semantic mask  =========== 
-                        print("^^^^^^^^^^^^^^^^^ start evaluate_step_flags")
-                        step_flags = evaluate_step_flags(
-                            tokenizer  = self.tokenizer,
-                            batch      = batch,
-                        )     # list[list[bool]]
-                        print("^^^^^^^^^^^^^^^^^ end evaluate_step_flags", step_flags.sahpe)
-                        apply_step_mask(
-                            batch        = batch,
-                            step_flags   = step_flags,
-                            good_scale   = 1.0,
-                            bad_scale    = 0.2,
-                        )                  # breakpoint()
-                        print("$$$$$$$$$$$$$$$$$$$$ ")
+                        # print("^^^^^^^^^^^^^^^^^ start evaluate_step_flags")
+                        # step_flags = evaluate_step_flags(
+                        #     tokenizer  = self.tokenizer,
+                        #     batch      = batch,
+                        # )     # list[list[bool]]
+                        # print("^^^^^^^^^^^^^^^^^ end evaluate_step_flags", f"shape: {len(step_flags)} samples")
+                        # apply_step_mask(
+                        #     batch        = batch,
+                        #     step_flags   = step_flags,
+                        #     good_scale   = self.config.actor_rollout_ref.actor.advantage.good_scale,
+                        #     bad_scale    = self.config.actor_rollout_ref.actor.advantage.bad_scale,
+                        #     neg_bad_scale = self.config.actor_rollout_ref.actor.advantage.neg_bad_scale,
+                        # )                  # breakpoint()
+                        # print("$$$$$$$$$$$$$$$$$$$$ ")
+                        
+                        print("^^^^^^^^^^^^^^^^^ start parallel semantic processing")
+                        from beyondagent.module.advantage_assignment.parallel_semantic_assignment import (
+                            ParallelSemanticProcessor
+                        )
+
+                        # 创建处理器（可以作为类成员变量避免重复创建）
+                        if not hasattr(self, '_semantic_processor'):
+                            self._semantic_processor = ParallelSemanticProcessor(
+                                max_concurrent=self.config.get("semantic_eval_concurrent", 20),
+                                model_name=self.config.get("semantic_eval_model", "qwen-max")
+                            )
+
+                        semantic_stats = self._semantic_processor.process_batch_sync(
+                            tokenizer=self.tokenizer,
+                            batch=batch,
+                            good_scale=self.config.actor_rollout_ref.actor.advantage.good_scale,
+                            bad_scale=self.config.actor_rollout_ref.actor.advantage.bad_scale,
+                            neg_bad_scale=self.config.actor_rollout_ref.actor.advantage.neg_bad_scale,
+                        )
+
+                        # 添加到metrics中
+                        metrics.update({
+                            "semantic_eval/total_time": semantic_stats["total_processing_time"],
+                            "semantic_eval/api_time": semantic_stats["evaluation_time"],
+                            "semantic_eval/mask_time": semantic_stats["mask_application_time"],
+                            "semantic_eval/good_steps": semantic_stats["mask_stats"]["good_steps"],
+                            "semantic_eval/bad_steps": semantic_stats["mask_stats"]["bad_steps"],
+                        })
+
+                        print("^^^^^^^^^^^^^^^^^ end parallel semantic processing")
                         # # ===========  0714 shuchang: add semantic mask  =========== 
                         # # ---------------- token-entropy logging ----------------
                         # responses       = batch.batch["responses"]         # (bs, resp_len)

@@ -162,7 +162,8 @@ def evaluate_step_flags(tokenizer,
 def apply_step_mask(batch,
                     step_flags: list[list[bool]],
                     good_scale: float = 1.0,
-                    bad_scale:  float = 0.2):
+                    bad_scale:  float = 0.2,
+                    neg_bad_scale: float = -0.2):
     """
     * 需要 env_manager ➜ to_dataproto 写入
         • batch.batch['step_ids'] : LongTensor (bs, resp_len)
@@ -220,13 +221,12 @@ def apply_step_mask(batch,
             if not tok_mask.any():
                 continue
                 
-            # 根据用户需求的4条规则：
             if overall_pos:
                 # 整体advantage为正
                 factor = good_scale if is_good else bad_scale  # good保持1.0，bad变0.2
             else:
                 # 整体advantage为负
-                factor = -bad_scale if is_good else good_scale  # good变-0.2，bad保持1.0
+                factor = neg_bad_scale if is_good else good_scale  # good变-0.2，bad保持1.0
                 
             scale[b].masked_fill_(tok_mask, factor)
             
