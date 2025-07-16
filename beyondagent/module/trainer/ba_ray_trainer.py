@@ -313,7 +313,7 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
         
         from verl.trainer.main_ppo import create_rl_dataset
         # load train dataset from files or environment
-        env_client=EnvClient()
+        env_client=EnvClient(self.config.env_service.env_url)
         if self.config.data.train_files is not None:
             train_seed_dataset = create_rl_dataset(self.config.data.train_files, self.config.data, self.tokenizer, self.processor)
             assert isinstance(train_seed_dataset,RLHFDataset), "train_dataset must be RLHFDataset"
@@ -329,8 +329,10 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
             self.val_task_manager.load_tasks_from_environment(env_client,env_type=self.config.env_service.env_type,split="val")
         
         # FIXME(cc): I use original seed data for trainset to test the new pipeline. 用于 vanilla 测试
-        # self.train_dataset=self.train_task_manager.get_or_load_full_dataset(filepath=self.config.task_manager.train_data_path,tokenizer=self.tokenizer,config=self.config.data,processor=self.processor)
-        self.train_dataset=self.train_task_manager.debug_get_original_seed_dataset(tokenizer=self.tokenizer,config=self.config.data,processor=self.processor)
+        if self.config.task_manager.debug_use_original_tasks:
+            self.train_dataset=self.train_task_manager.debug_get_original_seed_dataset(tokenizer=self.tokenizer,config=self.config.data,processor=self.processor)
+        else:
+            self.train_dataset=self.train_task_manager.get_or_load_full_dataset(filepath=self.config.task_manager.train_data_path,tokenizer=self.tokenizer,config=self.config.data,processor=self.processor)
         self.val_dataset=self.val_task_manager.debug_get_original_seed_dataset(tokenizer=self.tokenizer,config=self.config.data,processor=self.processor)
             
         assert not isinstance(self.train_dataset,AutoReloadDataset), "please disable multiple workers for AutoReloadDataset"
