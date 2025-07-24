@@ -34,6 +34,7 @@ class ControlledAgentFlow(BaseAgentFlow):
         request_id: str = ""
         for act_step in range(self.max_steps):
             # add exploration instruction
+            # FIXME 极其容易超 model input length
             records=self._state_recorder.get_state(trajectory)
             if len(records)>0:
                 instruction="In the past interactions at this place, you have output these action and observed these states already:\n"
@@ -118,6 +119,7 @@ class ControlledAgentFlow(BaseAgentFlow):
 
                 trajectory.steps.append(sanitize_env_state(env_message))
                 # log state
+                # 使用未执行 action 的 trajectory 作为 key
                 self._state_recorder.add_state(old_trajectory, llm_output['content'], env_message['content'])
             trajectory.is_terminated = env_output["is_terminated"]
             

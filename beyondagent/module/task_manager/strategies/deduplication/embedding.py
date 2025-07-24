@@ -3,13 +3,15 @@ import uuid
 from typing import Any, Optional, Sequence
 import chromadb
 from chromadb.config import Settings
+from loguru import logger
 
 from beyondagent.client.embedding_client import OpenAIEmbeddingClient
 from beyondagent.schema.trajectory import Trajectory
 
+MAX_INPUT_LEN=8192
 
 class EmbeddingClient:
-    def __init__(self, similarity_threshold: float, base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1", 
+    def __init__(self, similarity_threshold: float, base_url: str = 'https://dashscope.aliyuncs.com/compatible-mode/v1', 
                  api_key: Optional[str] = None, model: str = "text-embedding-v4",
                  chroma_db_path: str = "./chroma_db", collection_name: str = "trajectories"):
         api_key = api_key or os.getenv("DASHSCOPE_API_KEY")
@@ -239,7 +241,7 @@ def pack_trajectory(trajectory: Trajectory) -> str:
     for message in trajectory.steps:
         res += f"{message['role']}\n{message['content']}\n\n"
     
-    return res
+    return res[-MAX_INPUT_LEN:] # TODO: text-embedding-v4 最大长度
 
 
 class StateRecorder:
@@ -287,6 +289,7 @@ class StateRecorder:
         if id is None:
             return []
         else:
+            logger.debug(f"[embedding] key hit, similar state detected!, #state={len(self._mp)}")
             return self._mp[id]
     
     def get_similar_states(self, trajectory: Trajectory, k: int = 5) -> list[tuple[int, float, list[tuple[str, str]]]]:
@@ -309,21 +312,7 @@ class StateRecorder:
                 result.append((original_id, similarity, self._mp[original_id]))
         
         return result
-    
-    def get_stats(self) -> dict[str, int]:
-        """
-        获取统计信息
-        
-        Returns:
-            dict[str, int]: 统计信息字典
-        """
-        total_records = sum(len(records) for records in self._mp.values())
-        return {
-            "unique_trajectories": len(self._mp),
-            "total_records": total_records,
-            "stored_embeddings": self._client.size(),
-            "chroma_collection_info": self._client.get_collection_info()
-        }
+
     
     def clear(self):
         """清空所有记录"""
@@ -344,6 +333,5 @@ if __name__ == "__main__":
     )
     
     print("ChromaDB向量数据库已初始化")
-    print(f"当前统计信息: {recorder.get_stats()}")
     
     
