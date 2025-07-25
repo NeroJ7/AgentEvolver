@@ -14,49 +14,121 @@ from beyondagent.schema.task import Task, TaskObjective
 from beyondagent.schema.trajectory import Trajectory
 from . import TaskPostFilter
 
-class LlmFilter(TaskPostFilter):
-    def __init__(self,env_url:str,llm_client:LlmClient, num_threads:int,*,tokenizer,config):
-        self._env_client=EnvClient(env_url)
-        self._llm_client=llm_client
-        
-        self._num_threads=num_threads
-        
-        self._tokenizer=tokenizer
-        self._config=config
+import copy
+import time
+import logging
+from typing import Sequence, Optional, Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
-        pass
-    
+logger = logging.getLogger(__name__)
+
+class LlmFilter(TaskPostFilter):
+    def __init__(self, env_url: str, llm_client: LlmClient, num_threads: int, *, tokenizer, config):
+        self._env_client = EnvClient(env_url)
+        self._llm_client = llm_client
+        
+        self._num_threads = num_threads
+        
+        self._tokenizer = tokenizer
+        self._config = config
+        
+        # 用于线程安全的锁（如果需要共享资源访问控制）
+        self._lock = threading.Lock()
+
     def filter(self, tasks: Sequence[TaskObjective]) -> list[TaskObjective]:
-        res=[]
-        for task in tasks:
-            if self._execute_strategy1(task):
-                res.append(task)
+        """使用多线程并行过滤任务"""
+        if not tasks:
+            return []
+        
+        # 方法1: 使用 ThreadPoolExecutor 并行处理
+        return self._filter_with_threadpool(tasks)
+        
+        # 方法2: 如果需要更细粒度的控制，可以使用下面的批处理方法
+        # return self._filter_with_batches(tasks)
+    
+    def _filter_with_threadpool(self, tasks: Sequence[TaskObjective]) -> list[TaskObjective]:
+        """使用线程池并行处理所有任务"""
+        res = []
+        
+        with ThreadPoolExecutor(max_workers=self._num_threads) as executor:
+            # 提交所有任务
+            future_to_task = {
+                executor.submit(self._execute_strategy1, task): task 
+                for task in tasks
+            }
+            
+            # 收集结果
+            for future in as_completed(future_to_task):
+                task = future_to_task[future]
+                try:
+                    if future.result():  # 如果策略1返回True
+                        res.append(task)
+                except Exception as e:
+                    logger.exception(f"Error processing task {task}: {e}")
+                    # 根据需求决定是否将失败的任务也包含在结果中
+                    # 这里选择跳过失败的任务
+                    continue
         
         return res
     
+    def _filter_with_batches(self, tasks: Sequence[TaskObjective]) -> list[TaskObjective]:
+        """分批处理任务（可选的实现方式）"""
+        res = []
+        tasks_list = list(tasks)
+        
+        # 计算批次大小
+        batch_size = max(1, len(tasks_list) // self._num_threads)
+        
+        # 分批处理
+        for i in range(0, len(tasks_list), batch_size):
+            batch = tasks_list[i:i + batch_size]
+            
+            with ThreadPoolExecutor(max_workers=min(self._num_threads, len(batch))) as executor:
+                future_to_task = {
+                    executor.submit(self._execute_strategy1, task): task 
+                    for task in batch
+                }
+                
+                for future in as_completed(future_to_task):
+                    task = future_to_task[future]
+                    try:
+                        if future.result():
+                            res.append(task)
+                    except Exception as e:
+                        logger.exception(f"Error processing task {task}: {e}")
+                        continue
+        
+        return res
     
-    def _execute_strategy1(self, task:TaskObjective) -> bool:
+    def _execute_strategy1(self, task: TaskObjective) -> bool:
         """Execute strategy 1: Simple execution / 执行策略1：简单执行"""
-        
-        worker=EnvWorker(task.task)
-        agent_flow = ModifiedAgentFlow(
-            enable_context_generator=False,
-            llm_chat_fn=self._get_llm_chat_fn(),
-            tokenizer=self._tokenizer,
-            config=self._config,
-        )
-        traj = worker.execute("unknown","unknown",agent_flow)
-        
-        return self._validate(task,traj)
-        
+        try:
+            worker = EnvWorker(task.task)
+            agent_flow = ModifiedAgentFlow(
+                enable_context_generator=False,
+                llm_chat_fn=self._get_llm_chat_fn(),
+                tokenizer=self._tokenizer,
+                config=self._config,
+            )
+            traj = worker.execute("unknown", "unknown", agent_flow)
+            
+            return self._validate(task, traj)
+        except Exception as e:
+            logger.exception(f"Error in _execute_strategy1 for task {task}: {e}")
+            return False
         
     def _validate(self, task: TaskObjective, trajectory: Trajectory) -> bool:
-        llm_fn = self._get_llm_chat_fn()
-        validator=TrajectoryEvaluator(self._llm_client)
-        return validator.evaluate_trajectory_success(task,trajectory)
-    
+        """验证任务执行结果"""
+        try:
+            validator = TrajectoryEvaluator(self._llm_client)
+            return validator.evaluate_trajectory_success(task, trajectory)
+        except Exception as e:
+            logger.exception(f"Error in _validate for task {task}: {e}")
+            return False
     
     def _get_llm_chat_fn(self, sampling_params: Optional[dict] = None) -> Callable:
+        """获取LLM聊天函数，线程安全"""
         def llm_chat(
             messages: list[dict[str, str]],
             custom_sampling_params: Optional[dict] = None,
@@ -72,21 +144,24 @@ class LlmFilter(TaskPostFilter):
             if custom_sampling_params:
                 updated_sampling_params.update(custom_sampling_params)
 
-            # output_messages = []
             input_messages = copy.deepcopy(messages)
             res = None
+            
+            # 重试机制
             for i in range(3):
                 try:
+                    # 如果 llm_client 不是线程安全的，可以在这里加锁
+                    # with self._lock:
                     res = self._llm_client.chat(
-                        messages=input_messages, sampling_params=updated_sampling_params
+                        messages=input_messages, 
+                        sampling_params=updated_sampling_params
                     )
                     break
-
                 except Exception as e:
-                    logger.exception(f"rollout_server.{i} error: {e.args}")
+                    logger.exception(f"llm_chat attempt {i+1} error: {e}")
                     time.sleep(i + 1)
 
-            assert res is not None, f"LLM client failed to chat"
+            assert res is not None, f"LLM client failed to chat after 3 attempts"
             return {
                 "role": "assistant",
                 "content": res,
