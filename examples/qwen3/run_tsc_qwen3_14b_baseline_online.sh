@@ -1,37 +1,29 @@
 # run on 4xH100 with local vLLM semantic evaluation
 # make sure your current working directory is the root of the project
-# adv_assignment master
+
 set -x
 export HYDRA_FULL_ERROR=1
-# export RAY_DEBUG_POST_MORTEM=1
-export RAY_OVERRIDE_JOB_RUNTIME_ENV=1
+# export RAY_POST_MORTEM=1
 ulimit -n 65535
 
 PROJECT_DIR="$(pwd)"
 CONFIG_PATH="$PROJECT_DIR/config"
 # completion_callback=none
-env_url=http://$MASTER_ADDR:8000
+env_url=http://localhost:8000
 current_time=$(date "+%Y%m%d_%H%M%S")
-log_file="logs/qwen3/qwen3_32b_sparse_sem_turbo_nonconsis0.2_negnonconsis-0.2_respmask1_${current_time}.log"
-
-# Ray
-RAY_ADDRESS=${RAY_ADDRESS:-"http://localhost:8265"}
-WORKING_DIR=${WORKING_DIR:-"${PWD}"}
-RUNTIME_ENV=${RUNTIME_ENV:-"${WORKING_DIR}/config/runtime_env.yaml"}
-NNODES=${NNODES:-4}
+exp_name="qwen3_14b_sparse_baseline_online"
+log_file="logs/qwen3/${exp_name}_${current_time}.log"
+EN_SAVE_DIR="./save_dir/save_entropy"
 
 swanlab login --api-key xSxgnzpo2HEXkIzoxD2Ua
 
-
-ray job submit --address="$RAY_ADDRESS" \
-    --runtime-env="${RUNTIME_ENV}" \
-    --working-dir "." \
-    -- python -m beyondagent.main_ppo \
+python3 -m beyondagent.main_ppo \
     --config-path="$CONFIG_PATH" \
     --config-name='beyond_agent_dataflow' \
     env_service.env_url=$env_url \
+    save_dir=$EN_SAVE_DIR \
     algorithm.adv_estimator=grpo \
-    semantic_advantage.enable=true \
+    semantic_advantage.enable=false \
     semantic_advantage.evaluation_type='api' \
     semantic_advantage.mask_type='response_mask' \
     semantic_advantage.mode='semantic' \
@@ -54,7 +46,7 @@ ray job submit --address="$RAY_ADDRESS" \
     actor_rollout_ref.rollout.response_length=2048 \
     actor_rollout_ref.rollout.max_model_len=20480 \
     actor_rollout_ref.rollout.temperature=0.9 \
-    actor_rollout_ref.model.path=/mnt/data/yunpeng.zyp/models/Qwen3-32B \
+    actor_rollout_ref.model.path=/mnt/data/yunpeng.zyp/models/Qwen3-14B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
@@ -67,7 +59,7 @@ ray job submit --address="$RAY_ADDRESS" \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=4 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.mode=async \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
@@ -79,14 +71,14 @@ ray job submit --address="$RAY_ADDRESS" \
     trainer.critic_warmup=0 \
     trainer.logger="['console','swanlab']" \
     trainer.project_name='beyondagent' \
-    trainer.experiment_name="qwen3_32b_sparse_sem_turbo_nonconsis0.2_negnonconsis-0.2_respmask1" \
-    trainer.nnodes=4 \
-    trainer.save_freq=10 \
-    trainer.test_freq=10 \
+    trainer.experiment_name=${exp_name} \
+    trainer.nnodes=2 \
+    trainer.save_freq=20 \
+    trainer.test_freq=20 \
     trainer.total_epochs=60 \
     trainer.val_before_train=True \
-    trainer.validation_data_dir="experiments/exp_qwen3_32b_sparse_sem_turbo_nonconsis0.2_negnonconsis-0.2_respmask1_${current_time}/validation_log" \
-    trainer.rollout_data_dir="experiments/exp_qwen3_32b_sparse_sem_turbo_nonconsis0.2_negnonconsis-0.2_respmask1_${current_time}/rollout_log" \
+    trainer.validation_data_dir="experiments/exp_${exp_name}_${current_time}/validation_log" \
+    trainer.rollout_data_dir="experiments/exp_${exp_name}_${current_time}/rollout_log" \
     actor_rollout_ref.actor.ppo_max_token_len_per_gpu=20480 \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=20480 \
     actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=20480 \
@@ -97,4 +89,4 @@ ray job submit --address="$RAY_ADDRESS" \
     experience_maker.enable_summarizer=False \
     experience_maker.enable_context_generator=False \
     experience_maker.workspace_id="w1_qwen3_api_turbo_${current_time}" \
-    2>&1 | tee "$log_file" 
+    2>&1 | tee "$log_file"
