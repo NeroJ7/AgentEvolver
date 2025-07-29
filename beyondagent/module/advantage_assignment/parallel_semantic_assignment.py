@@ -589,143 +589,140 @@ def apply_step_mask_vectorized(batch,
     """
     向量化版本的step mask应用，避免嵌套循环
     对于advantage=0的样本跳过处理
-    
-    Args:
-        batch: 批次数据
-        step_flags: step评估结果
-        consistent_scale, pos_unconsistent_scale, neg_unconsistent_scale: 缩放因子
-        mask_tensor: 外部传入的mask tensor，shape (bs, resp_len)
-                    可以是loss_mask或response_mask，如果为None则使用默认的loss_mask
-    
-    Returns:
-        stats: 应用统计信息
     """
     print(f"[vectorized_mask] Starting vectorized mask application")
-    
-    # 检查必要的输入
+
     if 'step_ids' not in batch.batch:
         raise ValueError("batch.batch['step_ids'] is required but not found")
-    
-    adv = batch.batch["advantages"]  # (bs, resp_len)
-    step_ids = batch.batch["step_ids"].to(adv.device)  # (bs, resp_len)
-    
+
+    adv = batch.batch["advantages"]              # (bs, resp_len)
+    step_ids = batch.batch["step_ids"].to(adv.device)
     bs, resp_len = adv.shape
-    
+
     if len(step_flags) != bs:
         raise ValueError(f"step_flags length ({len(step_flags)}) != batch size ({bs})")
-    
-    # 初始化scale为全1
-    scale = torch.ones_like(adv)
-    
-    # 🔧 关键修改：使用外部传入的mask_tensor计算overall advantage
-    overall_advs = []
-    
-    # 使用传入的mask_tensor，如果没有传入则使用默认的loss_mask
+
+    # mask 选择
     if mask_tensor is not None:
         response_mask = mask_tensor
         print(f"[vectorized_mask] Using external mask tensor with shape {mask_tensor.shape}")
-        
-        # 验证mask tensor的形状
         if response_mask.shape != (bs, resp_len):
             raise ValueError(f"mask_tensor shape {response_mask.shape} doesn't match expected shape ({bs}, {resp_len})")
     else:
-        # 使用默认的loss_mask
         response_mask = batch.batch["loss_mask"][:, -resp_len:]
         print(f"[vectorized_mask] Using default loss_mask")
-    
+
+    # overall_adv per sample
+    overall_advs = []
     for sample_idx in range(bs):
         sample_mask = response_mask[sample_idx]
-        
-        overall_adv = _get_overall_advantage(
-            adv[sample_idx], 
-            sample_mask
-        )
+        overall_adv = _get_overall_advantage(adv[sample_idx], sample_mask)
         overall_advs.append(overall_adv)
-    
     overall_advs = torch.tensor(overall_advs, device=adv.device)
-    overall_pos = overall_advs > 0  # (bs,) bool tensor
-    
-    # 统计信息
+    overall_pos = overall_advs > 0  # (bs,)
+
+    # init scale
+    scale = torch.ones_like(adv)
+
+    # 统计量
     stats = {
         "total_samples": bs,
-        "total_tokens": resp_len * bs,
+        "total_tokens": int(resp_len * bs),
         "tokens_modified": 0,
         "good_steps": 0,
         "bad_steps": 0,
-        "positive_samples": overall_pos.sum().item(),
-        "negative_samples": (~overall_pos).sum().item(),
-        "zero_adv_samples": 0  # 新增：零advantage样本统计
+        "positive_samples": int(overall_pos.sum().item()),   # 正 sequence
+        "negative_samples": int((~overall_pos).sum().item()),# 负 sequence
+        "zero_adv_samples": 0,
+
+        # 新增四象限统计
+        "pos_good_steps": 0,
+        "pos_bad_steps": 0,
+        "neg_good_steps": 0,
+        "neg_bad_steps": 0,
+
+        # 基于 step 分桶的 token 数
+        "pos_tokens": 0,
+        "neg_tokens": 0,
     }
-    
-    # 处理每个样本（这部分还是需要循环，但内部是向量化的）
+
+    # 逐样本处理（内部仍矢量化 step_id）
     for b in tqdm(range(bs), desc="[vectorized_mask] Processing samples"):
         current_step_flags = step_flags[b]
         overall_adv_sum = overall_advs[b].item()
-        
-        # 新增：如果advantage为0，跳过处理（保持scale=1.0）
+
+        # advantage=0 跳过
         if abs(overall_adv_sum) < 1e-8:
             stats["zero_adv_samples"] += 1
             continue
-        
+
         if not current_step_flags:
             continue
-            
-        # 获取当前样本的step_ids和advantages
-        sample_step_ids = step_ids[b]  # (resp_len,)
-        sample_adv = adv[b]  # (resp_len,)
-        sample_overall_pos = overall_pos[b].item()
-        
-        # 为每个step创建mask和对应的scale factor
-        max_step_id = len(current_step_flags)
-        
-        # 向量化处理：为每个step_id创建mask
+
+        sample_step_ids = step_ids[b]
+        sample_overall_pos = bool(overall_pos[b].item())
+
         for step_id, is_good in enumerate(current_step_flags):
-            # 创建当前step的token mask
-            step_mask = (sample_step_ids == step_id)  # (resp_len,)
-            
+            step_mask = (sample_step_ids == step_id)
             if not step_mask.any():
                 continue
-            
-            # 根据overall_pos和is_good确定scale factor
+
+            # scale factor
             if sample_overall_pos:
                 factor = consistent_scale if is_good else pos_unconsistent_scale
             else:
                 factor = neg_unconsistent_scale if is_good else consistent_scale
-            
-            # 应用scale factor
+
             scale[b].masked_fill_(step_mask, factor)
-            
-            # 更新统计
-            tokens_in_step = step_mask.sum().item()
+
+            tokens_in_step = int(step_mask.sum().item())
             stats["tokens_modified"] += tokens_in_step
-            
+
             if is_good:
                 stats["good_steps"] += 1
+                if sample_overall_pos:
+                    stats["pos_good_steps"] += 1
+                else:
+                    stats["neg_good_steps"] += 1
             else:
                 stats["bad_steps"] += 1
-    
-    # 确保填充token（step_id == -1）保持scale=1.0
+                if sample_overall_pos:
+                    stats["pos_bad_steps"] += 1
+                else:
+                    stats["neg_bad_steps"] += 1
+
+            if sample_overall_pos:
+                stats["pos_tokens"] += tokens_in_step
+            else:
+                stats["neg_tokens"] += tokens_in_step
+
+    # padding token 维持 1.0
     padding_mask = (step_ids == -1)
     scale.masked_fill_(padding_mask, 1.0)
-    
-    # 应用scale
+
+    # 应用
     original_adv_sum = adv.sum().item()
     batch.batch["advantages"] = adv * scale
     new_adv_sum = batch.batch["advantages"].sum().item()
-    
-    # 保存scale用于调试
     batch.batch["semantic_scale"] = scale
-    
-    # 更新统计信息
+
+    # 额外：按 advantage 符号的原始 token 计数（看是否被负样本 dom）
+    valid_token_mask = response_mask & (~padding_mask)
+    pos_token_mask = (adv > 0) & valid_token_mask
+    neg_token_mask = (adv < 0) & valid_token_mask
+    stats["pos_tokens_raw"] = int(pos_token_mask.sum().item())
+    stats["neg_tokens_raw"] = int(neg_token_mask.sum().item())
+
     stats["original_adv_sum"] = original_adv_sum
     stats["new_adv_sum"] = new_adv_sum
     stats["adv_change_ratio"] = new_adv_sum / original_adv_sum if original_adv_sum != 0 else 1.0
-    
+
     print(f"[vectorized_mask] Completed. Advantages: {original_adv_sum:.4f} -> {new_adv_sum:.4f}")
     print(f"[vectorized_mask] Modified {stats['tokens_modified']} tokens ({stats['good_steps']} good steps, {stats['bad_steps']} bad steps)")
     print(f"[vectorized_mask] Skipped {stats['zero_adv_samples']} samples with advantage=0")
-    
+
     return stats
+
 
 # ————————————————————————————————————————————————————————————————
 # 同步包装函数（更新为支持evaluation_type和api_max_retries）

@@ -810,8 +810,134 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                                 "semantic_eval/good_steps": semantic_stats["mask_stats"]["good_steps"],
                                 "semantic_eval/bad_steps": semantic_stats["mask_stats"]["bad_steps"],
                             })
+                            ms = semantic_stats["mask_stats"]
+                            metrics.update({
+                                # 四象限 step 统计
+                                "semantic_eval/pos_good_steps": ms["pos_good_steps"],
+                                "semantic_eval/pos_bad_steps":  ms["pos_bad_steps"],
+                                "semantic_eval/neg_good_steps": ms["neg_good_steps"],
+                                "semantic_eval/neg_bad_steps":  ms["neg_bad_steps"],
 
+                                # token / seq 级别
+                                "semantic_eval/pos_tokens":     ms["pos_tokens"],
+                                "semantic_eval/neg_tokens":     ms["neg_tokens"],
+                                "semantic_eval/pos_tokens_raw": ms["pos_tokens_raw"],   # 原始adv符号
+                                "semantic_eval/neg_tokens_raw": ms["neg_tokens_raw"],
+                                "semantic_eval/pos_sequences":  ms["positive_samples"],
+                                "semantic_eval/neg_sequences":  ms["negative_samples"],
+
+                                # 简单比例看负样本是否 dominate
+                                "semantic_eval/neg_token_ratio": ms["neg_tokens_raw"] / max(1, ms["pos_tokens_raw"] + ms["neg_tokens_raw"]),
+                            })
+                            
+                            # TODO：advantage norm
+                            # === Advantage normalization (under semantic_advantage.adv_norm) ===
+                            norm_root = getattr(self.config, "semantic_advantage", None)
+                            adv_norm_cfg = getattr(norm_root, "adv_norm", None) if norm_root else None
+
+                            if adv_norm_cfg and getattr(adv_norm_cfg, "enable", True):
+                                level = getattr(adv_norm_cfg, "level", "batch")        # "batch" or "group"
+                                group_size = getattr(adv_norm_cfg, "group_size", None) # only used when level=="group"
+                                use_mask_type = getattr(norm_root, "mask_type", "loss_mask")  # 复用你已有的 mask_type 设定
+
+                                with torch.no_grad():
+                                    adv = batch.batch["advantages"]                    # (bs, L)
+                                    bs, resp_len = adv.shape
+
+                                    # 选 mask
+                                    if use_mask_type == "loss_mask" and "loss_mask" in batch.batch:
+                                        mask_all = batch.batch["loss_mask"][:, -resp_len:].bool()
+                                    else:
+                                        mask_all = batch.batch["response_mask"].bool()
+
+                                    norm_adv = adv.clone()
+
+                                    # ---------- BATCH ----------
+                                    if level == "batch":
+                                        valid_adv = adv[mask_all]
+                                        if valid_adv.numel() > 0:
+                                            med = torch.median(valid_adv)
+                                            norm_adv[mask_all] = adv[mask_all] - med
+                                        else:
+                                            med = torch.tensor(0.0, device=adv.device)
+
+                                        tokens_normed = int(mask_all.sum().item())
+                                        group_cnt = 1
+                                        zero_groups = 0
+                                        med_mean = float(med)
+
+                                    # ---------- GROUP ----------
+                                    elif level == "group":
+                                        # 默认用 repeat 组划分（GRPO 典型 n）
+                                        if group_size is None:
+                                            group_size = self.config.actor_rollout_ref.rollout.n
+                                        device = adv.device
+                                        group_ids = torch.arange(bs, device=device) // group_size
+
+                                        tokens_normed = 0
+                                        med_list = []
+                                        zero_groups = 0
+                                        group_cnt = int(group_ids.unique().numel())
+
+                                        for gid in group_ids.unique():
+                                            g_mask_sample = (group_ids == gid).unsqueeze(1)   # (bs,1)
+                                            g_mask = g_mask_sample & mask_all                 # (bs,L)
+                                            if not g_mask.any():
+                                                continue
+
+                                            g_adv = adv[g_mask]
+                                            if g_adv.numel() == 0:
+                                                continue
+
+                                            g_med = torch.median(g_adv)
+                                            # 仅平移
+                                            norm_adv[g_mask] = adv[g_mask] - g_med
+
+                                            med_list.append(g_med)
+                                            tokens_normed += int(g_adv.numel())
+
+                                        if med_list:
+                                            med_mean = torch.stack(med_list).mean().item()
+                                        else:
+                                            med_mean = 0.0
+
+                                    else:
+                                        raise ValueError(f"Unknown adv_norm.level: {level}")
+
+                                    # 写回
+                                    batch.batch["advantages"] = norm_adv
+
+                                    # -------- Stats after normalization --------
+                                    # token 级
+                                    pos_tok = int((norm_adv[mask_all] > 0).sum().item())
+                                    neg_tok = int((norm_adv[mask_all] < 0).sum().item())
+                                    zero_tok = int((norm_adv[mask_all] == 0).sum().item())
+
+                                    # sequence 级（对有效 token 求和）
+                                    seq_sum = (norm_adv * mask_all).sum(dim=1)
+                                    pos_seq = int((seq_sum > 0).sum().item())
+                                    neg_seq = int((seq_sum < 0).sum().item())
+                                    zero_seq = int((seq_sum == 0).sum().item())
+
+                                # 记录指标
+                                metrics.update({
+                                    "adv_norm/level": level,   # 直接存字符串更直观
+                                    "adv_norm/groups": group_cnt,
+                                    "adv_norm/tokens_normed": tokens_normed,
+                                    "adv_norm/zero_groups": zero_groups,    # 目前仅占位（未用到std故恒0）
+                                    "adv_norm/median_mean": float(med_mean),
+
+                                    "adv_norm/pos_tokens": pos_tok,
+                                    "adv_norm/neg_tokens": neg_tok,
+                                    "adv_norm/zero_tokens": zero_tok,
+                                    "adv_norm/pos_sequences": pos_seq,
+                                    "adv_norm/neg_sequences": neg_seq,
+                                    "adv_norm/zero_sequences": zero_seq,
+                                    "adv_norm/neg_token_ratio": neg_tok / max(1, pos_tok + neg_tok),
+                                })
+                            
                             print("^^^^^^^^^^^^^^^^^ end parallel semantic processing")
+                            
                         # # ===========  0714 shuchang: add semantic mask  =========== 
                         # # ---------------- token-entropy logging ----------------
                         # responses       = batch.batch["responses"]         # (bs, resp_len)
