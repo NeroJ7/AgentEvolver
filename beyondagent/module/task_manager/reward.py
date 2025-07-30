@@ -12,37 +12,44 @@ Your evaluation should address the following dimensions in order:
 - Are the solution steps relevant to the problem? If the approach is completely unrelated to the task requirements, assign 0 points immediately.
 - If relevant, proceed to other evaluation dimensions.
 
-**Step 2: Final Answer Assessment (Critical)**
-- Does the agent provide a final answer? Is the final answer correct?
-- No answer or incorrect answer: Maximum 49 points
-- Correct answer provided: Minimum 60 points
-
-**Step 3: Solution Efficiency**
-- Are there unnecessary or irrelevant steps in the solution process?
-- Deduct points for redundant or off-topic actions
-- If the final answer is correct, the minimum score after deductions should not go below 60 points
-
-**Step 4: Repetition Penalty**
+**Step 2: Repetition Penalty Check**
 - Does the agent get stuck in infinite loops or repeat identical steps endlessly?
-- If there are infinite repetitions of the same steps, even with a correct answer, the maximum score is 20 points
+- If there are infinite repetitions of the same steps, consider the relevance of existing steps:
+ - If steps are relevant: Maximum 20 points
+ - If steps are irrelevant: 0 points
 
-**Step 5: Code Execution Quality**
-- Are there code execution errors during the process?
-- Deduct points appropriately for runtime errors, bugs, or failed executions
+**Step 3: Goal Achievement Assessment (Critical Binary Check)**
+- Examine ALL steps comprehensively to determine if the task goal is truly achieved
+- Do not be misled by superficial language - verify actual completion
+- Check if there is a correct final answer or if the stated objective is genuinely accomplished
+
+**MANDATORY SCORING CONSTRAINTS:**
+- If steps are relevant AND goal is achieved/answer is correct: Score MUST be 60-100
+- If steps are relevant BUT goal is not achieved/answer is incorrect: Score MUST be 0-40
+- FORBIDDEN: Do not assign scores between 41-59
+
+**Step 4: Additional Deductions (within the above constraints)**
+- **Code Execution Errors**: Deduct points for runtime errors, bugs, or failed executions
+- **Unnecessary/Irrelevant Steps**: Deduct points for redundant or off-topic actions
 
 **Scoring Guidelines:**
-- 90-100: Exceptional performance - correct answer with efficient, clean execution
-- 80-89: Strong performance - correct answer with minor inefficiencies
-- 70-79: Good performance - correct answer with some unnecessary steps
-- 60-69: Adequate performance - correct answer but with notable issues
-- 50-59: Poor performance - major issues but some progress made
-- 20-49: Very poor performance - no correct answer or severe execution problems
-- 1-19: Minimal attempt with infinite loops or severe repetition issues
-- 0: Complete failure - irrelevant approach or no meaningful attempt
+- 90-100: Exceptional performance - goal achieved with efficient, clean execution
+- 80-89: Strong performance - goal achieved with minor inefficiencies or small errors
+- 70-79: Good performance - goal achieved with some unnecessary steps or code issues
+- 60-69: Adequate performance - goal achieved but with notable problems
+- 30-40: Poor performance - goal not achieved but relevant approach with some progress
+- 10-29: Very poor performance - goal not achieved with major execution issues
+- 1-9: Minimal relevant attempt - goal not achieved with severe problems
+- 0: Complete failure - irrelevant approach or infinite repetition of irrelevant steps
 
-Provide your detailed analysis first, explaining your reasoning for each evaluation dimension. Then assign a precise integer score between 0 and 100 based on the criteria above.
+**REMEMBER**: 
+- No scores between 41-59 are allowed
+- Goal achievement determines the 60+ vs 0-40 range
+- Infinite repetition caps score at 20 (if steps are relevant) or 0 (if irrelevant)
 
-First provide your detailed reasoning analysis, then output an integer score between 0 and 100 enclosed in <reward></reward> tags, e.g., <reward>75</reward>
+Provide your detailed analysis first, explaining your reasoning for each evaluation dimension. Then assign a precise integer score following the mandatory constraints above.
+
+First provide your detailed reasoning analysis, then output an integer score between 0-40 or 60-100 enclosed in <reward></reward> tags, e.g., <reward>75</reward>
 """
 # query & reward improvement
 # TODO 可以与 appworld grader 算【相关性】
