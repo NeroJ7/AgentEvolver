@@ -775,6 +775,7 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                                     evaluation_type=semantic_config.evaluation_type,  # 🔧 新增：支持评估类型
                                     api_max_retries=getattr(semantic_config, 'api_max_retries', 200)  # 支持配置重试次数
                                 )
+                            
                             # 根据配置选择mask类型
                             response_length = batch.batch["responses"].size(1)
                             mask_type = semantic_config.mask_type
@@ -792,6 +793,20 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                                 supported_types = ["response_mask", "loss_mask"]
                                 raise ValueError(f"Unsupported mask_type: '{mask_type}'. Supported types: {supported_types}")
                             
+                            # 🆕 新增：构造保存目录和相关信息
+                            llm_eval_save_dir = None
+                            if hasattr(self.config.trainer, 'llm_evaluation_log_dir') and self.config.trainer.llm_evaluation_log_dir:
+                                # 从配置文件获取保存目录
+                                base_save_dir = self.config.trainer.llm_evaluation_log_dir
+                                # 创建按global_step分组的子目录
+                                llm_eval_save_dir = f"{base_save_dir}/step_{self.global_steps:06d}"
+                                print(f"[semantic_eval] LLM evaluation records will be saved to: {llm_eval_save_dir}")
+                            else:
+                                print(f"[semantic_eval] No llm_evaluation_log_dir configured, evaluation records will not be saved")
+                            
+                            # 构造epoch信息
+                            epoch_info = f"train.{epoch}.{i}"
+                            
                             # 使用统一的配置获取缩放参数
                             semantic_stats = self._semantic_processor.process_batch_sync(
                                 tokenizer=self.tokenizer,
@@ -799,7 +814,10 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                                 consistent_scale=semantic_config.consistent_scale,
                                 pos_unconsistent_scale=semantic_config.pos_unconsistent_scale,
                                 neg_unconsistent_scale=semantic_config.neg_unconsistent_scale,
-                                mask_tensor=selected_mask, 
+                                mask_tensor=selected_mask,
+                                save_dir=llm_eval_save_dir,  # 🆕 传递保存目录
+                                global_step=self.global_steps,  # 🆕 传递全局步数
+                                epoch=epoch_info,  # 🆕 传递epoch信息
                             )
 
                             # 添加到metrics中
@@ -830,6 +848,17 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                                 "semantic_eval/neg_token_ratio": ms["neg_tokens_raw"] / max(1, ms["pos_tokens_raw"] + ms["neg_tokens_raw"]),
                             })
                             
+                            # 🆕 新增：记录保存相关的metrics
+                            if llm_eval_save_dir:
+                                metrics.update({
+                                    "semantic_eval/save_dir_configured": 1,
+                                    "semantic_eval/records_saved": semantic_stats["evaluation_stats"].get("total_tasks", 0),
+                                })
+                            else:
+                                metrics.update({
+                                    "semantic_eval/save_dir_configured": 0,
+                                    "semantic_eval/records_saved": 0,
+                                })
                             # TODO：advantage norm
                             # === Advantage normalization (under semantic_advantage.adv_norm) ===
                             # === Advantage normalization (semantic_advantage.adv_norm) ==========
@@ -877,7 +906,7 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
                                         group_ids = torch.arange(bs, device=device) // group_size
 
                                         tokens_normed = 0
-                                        med_list, std_list = []
+                                        med_list, std_list = [], []
                                         zero_groups = 0
 
                                         for gid in group_ids.unique():

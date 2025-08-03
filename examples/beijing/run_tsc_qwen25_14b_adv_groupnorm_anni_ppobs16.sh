@@ -12,8 +12,8 @@ CONFIG_PATH="$PROJECT_DIR/config"
 # completion_callback=none
 env_url=http://$MASTER_ADDR:8000
 current_time=$(date "+%Y%m%d_%H%M%S")
-suffix="qwen3_14b_adv_groupnorm_std_trbs32_ppobs16_warmup"
-log_file="/mnt/data/taoshuchang.tsc/beyondagent/BeyondAgent/logs/qwen3/${suffix}_${current_time}.log"
+suffix="qwen25_14b_groupnorm_anni_ppobs16"
+log_file="/mnt/data/taoshuchang.tsc/beyondagent/BeyondAgent/logs/qwen25/${suffix}_${current_time}.log"
 
 # Ray - 修改为直接连接Ray集群，而不是通过Job API
 RAY_ADDRESS=${RAY_ADDRESS:-"ray://localhost:10001"}  # 改为Ray客户端地址
@@ -29,12 +29,15 @@ export CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
 export NCCL_SOCKET_IFNAME="eth0"
 export NCCL_IB_DISABLE="1"
 
+clip_ratio_high=0.28
+
 # 直接执行训练命令，而不是使用 ray job submit
 python -m beyondagent.main_ppo \
     --config-path="$CONFIG_PATH" \
     --config-name='beyond_agent_dataflow' \
     env_service.env_url=$env_url \
     algorithm.adv_estimator=grpo \
+    actor_rollout_ref.actor.clip_ratio_high=${clip_ratio_high} \
     semantic_advantage.enable=true \
     semantic_advantage.evaluation_type='api' \
     semantic_advantage.mask_type='response_mask' \
@@ -49,19 +52,19 @@ python -m beyondagent.main_ppo \
     semantic_advantage.adv_norm.level="group" \
     actor_rollout_ref.rollout.val_kwargs.n=8 \
     env_sparse=true \
-    data.train_batch_size=16 \
+    data.train_batch_size=32 \
     data.max_prompt_length=4096 \
     data.max_response_length=20480 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     data.return_raw_chat=True \
-    actor_rollout_ref.rollout.use_qwen3=True \
+    actor_rollout_ref.rollout.use_qwen3=False \
     actor_rollout_ref.rollout.enable_request_id=False \
     actor_rollout_ref.rollout.prompt_length=20480 \
-    actor_rollout_ref.rollout.response_length=2048 \
+    actor_rollout_ref.rollout.response_length=4096 \
     actor_rollout_ref.rollout.max_model_len=20480 \
     actor_rollout_ref.rollout.temperature=0.9 \
-    actor_rollout_ref.model.path=/mnt/data/yunpeng.zyp/models/Qwen3-14B  \
+    actor_rollout_ref.model.path=/mnt/data/zouanni.zan/models/Qwen2.5-14B-Instruct  \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
@@ -89,10 +92,10 @@ python -m beyondagent.main_ppo \
     trainer.project_name='beyondagent' \
     trainer.experiment_name="${suffix}" \
     trainer.nnodes=2 \
-    trainer.default_local_dir="/mnt/data/taoshuchang.tsc/beyondagent/BeyondAgent/checkpoints/qwen3/${suffix}" \
+    trainer.default_local_dir="/mnt/data/taoshuchang.tsc/beyondagent/BeyondAgent/checkpoints/qwen25/${suffix}" \
     trainer.save_freq=10 \
     trainer.test_freq=10 \
-    trainer.total_epochs=60 \
+    trainer.total_epochs=30 \
     trainer.val_before_train=True \
     trainer.validation_data_dir="/mnt/data/taoshuchang.tsc/beyondagent/BeyondAgent/experiments/exp_${suffix}_${current_time}/validation_log" \
     trainer.rollout_data_dir="/mnt/data/taoshuchang.tsc/beyondagent/BeyondAgent/experiments/exp_${suffix}_${current_time}/rollout_log" \
@@ -105,5 +108,5 @@ python -m beyondagent.main_ppo \
     data.val_files=/mnt/data/yunpeng.zyp/data/appworld_verl/dev.parquet \
     experience_maker.enable_summarizer=False \
     experience_maker.enable_context_generator=False \
-    experience_maker.workspace_id="w1_qwen3_api_turbo_${current_time}" \
+    experience_maker.workspace_id="w1_qwen25_api_turbo_${current_time}" \
     2>&1 | tee "$log_file"

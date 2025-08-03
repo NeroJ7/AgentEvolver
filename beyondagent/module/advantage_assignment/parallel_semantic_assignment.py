@@ -2,6 +2,8 @@ import torch
 import verl.utils.torch_functional as verl_F
 from openai import AsyncOpenAI
 import os
+import json
+from pathlib import Path
 from loguru import logger
 import time
 import traceback
@@ -11,7 +13,7 @@ import aiohttp
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Tuple, Dict, Optional, Literal
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 
 __all__ = [
     "evaluate_step_flags_parallel",    # 并行版本的step评估
@@ -36,6 +38,25 @@ class EvaluationResult:
     step_idx: int
     is_good: bool
     response_time: float
+
+@dataclass
+class EvaluationRecord:
+    """评估记录的数据结构，用于保存到文件"""
+    sample_idx: int
+    step_idx: int
+    query: str
+    rollout: str
+    step_text: str
+    overall_adv: float
+    llm_input_messages: List[Dict]
+    llm_raw_output: str
+    llm_parsed_result: bool  # True for GOOD, False for BAD
+    response_time: float
+    timestamp: float
+    model_name: str
+    evaluation_type: str
+    global_step: Optional[int] = None
+    epoch: Optional[str] = None
 
 # 全局变量存储vLLM模型和tokenizer（用于本地评估）
 _vllm_model = None
@@ -103,6 +124,85 @@ def _build_prompt(query: str, rollout: str, step: str, overall_adv: float) -> li
         f"the final answer given the user query and the overall advantage?"
     )
     return [{"role": "system", "content": sys}, {"role": "user", "content": user}]
+
+def _save_evaluation_record(record: EvaluationRecord, save_dir: Optional[str] = None):
+    """
+    保存评估记录到文件，自动创建必要的目录结构
+    
+    Args:
+        record: 评估记录
+        save_dir: 保存目录，如果为None则不保存
+    """
+    if save_dir is None:
+        return
+    
+    try:
+        # 创建基础保存目录
+        base_save_path = Path(save_dir)
+        base_save_path.mkdir(parents=True, exist_ok=True)
+        
+        # 根据global_step创建子目录（每个step一个文件夹）
+        if record.global_step is not None:
+            step_subdir = f"step_{record.global_step:06d}"
+        else:
+            step_subdir = "step_unknown"
+        
+        step_save_path = base_save_path / step_subdir
+        step_save_path.mkdir(parents=True, exist_ok=True)
+        
+        # 构造文件名：包含global_step、sample_idx、step_idx
+        timestamp_str = f"{record.timestamp:.3f}".replace('.', '_')
+        global_step_str = f"step{record.global_step:06d}" if record.global_step is not None else "nostep"
+        filename = f"{global_step_str}_sample{record.sample_idx:03d}_step{record.step_idx:02d}_{timestamp_str}.json"
+        
+        file_path = step_save_path / filename
+        
+        # 将记录转换为字典并保存
+        record_dict = asdict(record)
+        
+        # 添加一些额外的元数据
+        record_dict["_metadata"] = {
+            "save_time": time.time(),
+            "step_directory": step_subdir,
+            "file_name": filename,
+            "full_path": str(file_path)
+        }
+        
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(record_dict, f, ensure_ascii=False, indent=2)
+        
+        # 记录保存成功的日志
+        print(f"[record_save] ✅ Saved evaluation record: {step_subdir}/{filename}")
+            
+    except Exception as e:
+        print(f"[record_save] ❌ Failed to save evaluation record: {e}")
+        print(f"[record_save] 📁 Attempted path: {save_dir}")
+        print(f"[record_save] 📄 Record details: sample_{record.sample_idx}_step_{record.step_idx}")
+        
+        # 尝试创建一个简化的错误记录
+        try:
+            error_save_path = Path(save_dir)
+            error_save_path.mkdir(parents=True, exist_ok=True)
+            
+            error_filename = f"ERROR_sample{record.sample_idx:03d}_step{record.step_idx:02d}_{time.time():.0f}.json"
+            error_file_path = error_save_path / error_filename
+            
+            error_record = {
+                "error": str(e),
+                "sample_idx": record.sample_idx,
+                "step_idx": record.step_idx,
+                "global_step": record.global_step,
+                "timestamp": record.timestamp,
+                "attempted_save_dir": save_dir
+            }
+            
+            with open(error_file_path, 'w', encoding='utf-8') as f:
+                json.dump(error_record, f, ensure_ascii=False, indent=2)
+                
+            print(f"[record_save] 🆘 Saved error record: {error_filename}")
+            
+        except Exception as e2:
+            print(f"[record_save] 💥 Failed to save error record: {e2}")
 
 # ————————————————————————————————————————————————————————————————
 # 本地模型评估（vLLM）
@@ -187,18 +287,42 @@ async def _vllm_safe_query(model,
 async def _evaluate_single_task_vllm(model,
                                     tokenizer,
                                     task: EvaluationTask,
-                                    semaphore: asyncio.Semaphore) -> EvaluationResult:
-    """使用vLLM评估单个任务"""
+                                    semaphore: asyncio.Semaphore,
+                                    save_dir: Optional[str] = None,
+                                    global_step: Optional[int] = None,
+                                    epoch: Optional[str] = None) -> EvaluationResult:
+    """使用vLLM评估单个任务，并保存评估记录"""
     start_time = time.time()
     
     try:
         messages = _build_prompt(task.query, task.rollout, task.step_text, task.overall_adv)
-        answer = await _vllm_safe_query(model, tokenizer, messages, semaphore)
+        llm_raw_output = await _vllm_safe_query(model, tokenizer, messages, semaphore)
         
-        answer_upper = answer.upper()
+        answer_upper = llm_raw_output.upper()
         is_good = answer_upper.startswith("G") or "GOOD" in answer_upper
         
         response_time = time.time() - start_time
+        
+        # 保存评估记录
+        if save_dir:
+            record = EvaluationRecord(
+                sample_idx=task.sample_idx,
+                step_idx=task.step_idx,
+                query=task.query,
+                rollout=task.rollout,
+                step_text=task.step_text,
+                overall_adv=task.overall_adv,
+                llm_input_messages=messages,
+                llm_raw_output=llm_raw_output,
+                llm_parsed_result=is_good,
+                response_time=response_time,
+                timestamp=time.time(),
+                model_name="vLLM_local",
+                evaluation_type="local",
+                global_step=global_step,
+                epoch=epoch
+            )
+            _save_evaluation_record(record, save_dir)
         
         return EvaluationResult(
             sample_idx=task.sample_idx,
@@ -214,6 +338,27 @@ async def _evaluate_single_task_vllm(model,
         # 失败时使用随机fallback
         import random
         is_good = random.choice([True, False])
+        
+        # 即使失败也保存记录（用于调试）
+        if save_dir:
+            record = EvaluationRecord(
+                sample_idx=task.sample_idx,
+                step_idx=task.step_idx,
+                query=task.query,
+                rollout=task.rollout,
+                step_text=task.step_text,
+                overall_adv=task.overall_adv,
+                llm_input_messages=_build_prompt(task.query, task.rollout, task.step_text, task.overall_adv),
+                llm_raw_output=f"ERROR: {str(e)}",
+                llm_parsed_result=is_good,
+                response_time=response_time,
+                timestamp=time.time(),
+                model_name="vLLM_local",
+                evaluation_type="local",
+                global_step=global_step,
+                epoch=epoch
+            )
+            _save_evaluation_record(record, save_dir)
         
         return EvaluationResult(
             sample_idx=task.sample_idx,
@@ -233,6 +378,7 @@ async def _async_safe_query(client: AsyncOpenAI,
                            max_retries: int = 200) -> str:
     """
     异步安全的API调用，增强的重试机制，专门处理429错误
+    支持qwq-plus等思考模型的流式输出，只返回最终答案
     
     Args:
         client: OpenAI客户端
@@ -242,21 +388,65 @@ async def _async_safe_query(client: AsyncOpenAI,
         max_retries: 最大重试次数，默认200次
     
     Returns:
-        API响应内容
+        API响应内容（只包含最终答案，不包含思考过程）
     """
     async with semaphore:  # 控制并发数
         last_exception = None
         
         for attempt in range(max_retries):
             try:
-                response = await client.chat.completions.create(
-                    model=model,
-                    messages=messages,
-                    temperature=0.0,
-                    timeout=30,
-                    max_tokens=10,
-                )
-                return response.choices[0].message.content.strip()
+                # 检查是否是qwq-plus或其他思考模型
+                is_thinking_model = model.lower() in ["qwq-plus", "qwen3-30b-a3b-thinking-2507", "qwen3-235b-a22b-thinking-2507"]
+                
+                if is_thinking_model:
+                    # 对于思考模型，使用流式输出
+                    print(f"[API] Using streaming mode for thinking model: {model}")
+                    
+                    response = await client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        temperature=0.0,
+                        extra_body={"enable_thinking": True},
+                        stream=True,
+                        max_tokens=50,  # 对于GOOD/BAD评估，50个token足够了
+                    )
+                    
+                    # 收集流式响应，只保留最终答案
+                    answer_content = ""
+                    reasoning_content = ""  # 思考过程（用于调试，不返回）
+                    is_answering = False
+                    
+                    async for chunk in response:
+                        if not chunk.choices:
+                            continue
+                        
+                        delta = chunk.choices[0].delta
+                        
+                        # 收集思考内容（但不使用）
+                        if hasattr(delta, "reasoning_content") and delta.reasoning_content is not None:
+                            reasoning_content += delta.reasoning_content
+                        
+                        # 收集最终答案内容
+                        if hasattr(delta, "content") and delta.content:
+                            if not is_answering:
+                                is_answering = True
+                            answer_content += delta.content
+                    
+                    # 返回最终答案
+                    final_answer = answer_content.strip()
+                    print(f"[API] Thinking model response - Answer: '{final_answer[:50]}...' (reasoning length: {len(reasoning_content)})")
+                    return final_answer
+                    
+                else:
+                    # 对于非思考模型，使用传统方式
+                    response = await client.chat.completions.create(
+                        model=model,
+                        messages=messages,
+                        temperature=0.0,
+                        timeout=30,
+                        max_tokens=10,
+                    )
+                    return response.choices[0].message.content.strip()
                 
             except Exception as e:
                 last_exception = e
@@ -316,9 +506,12 @@ async def _evaluate_single_task_api(client: AsyncOpenAI,
                                   model_name: str,
                                   task: EvaluationTask,
                                   semaphore: asyncio.Semaphore,
-                                  max_retries: int = 200) -> EvaluationResult:
+                                  max_retries: int = 200,
+                                  save_dir: Optional[str] = None,
+                                  global_step: Optional[int] = None,
+                                  epoch: Optional[str] = None) -> EvaluationResult:
     """
-    使用API评估单个任务，增强重试机制
+    使用API评估单个任务，增强重试机制，并保存评估记录
     
     Args:
         client: OpenAI客户端
@@ -326,17 +519,44 @@ async def _evaluate_single_task_api(client: AsyncOpenAI,
         task: 评估任务
         semaphore: 并发控制信号量
         max_retries: 最大重试次数
+        save_dir: 保存目录
+        global_step: 全局步数
+        epoch: 训练轮次
     """
     start_time = time.time()
     
     try:
         messages = _build_prompt(task.query, task.rollout, task.step_text, task.overall_adv)
-        answer = await _async_safe_query(client, model_name, messages, semaphore, max_retries)
+        llm_raw_output = await _async_safe_query(client, model_name, messages, semaphore, max_retries)
         
-        answer_upper = answer.upper()
+        answer_upper = llm_raw_output.upper()
         is_good = answer_upper.startswith("G") or "GOOD" in answer_upper
         
         response_time = time.time() - start_time
+        
+        # 保存评估记录
+        if save_dir:
+            # 检查是否是思考模型
+            is_thinking_model = model_name.lower() in ["qwq-plus", "qwen3-30b-a3b-thinking-2507", "qwen3-235b-a22b-thinking-2507"]
+            
+            record = EvaluationRecord(
+                sample_idx=task.sample_idx,
+                step_idx=task.step_idx,
+                query=task.query,
+                rollout=task.rollout,
+                step_text=task.step_text,
+                overall_adv=task.overall_adv,
+                llm_input_messages=messages,
+                llm_raw_output=llm_raw_output,
+                llm_parsed_result=is_good,
+                response_time=response_time,
+                timestamp=time.time(),
+                model_name=f"{model_name}{'_thinking' if is_thinking_model else ''}",
+                evaluation_type="api",
+                global_step=global_step,
+                epoch=epoch
+            )
+            _save_evaluation_record(record, save_dir)
         
         return EvaluationResult(
             sample_idx=task.sample_idx,
@@ -352,6 +572,27 @@ async def _evaluate_single_task_api(client: AsyncOpenAI,
         # 失败时使用随机fallback
         import random
         is_good = random.choice([True, False])
+        
+        # 即使失败也保存记录（用于调试）
+        if save_dir:
+            record = EvaluationRecord(
+                sample_idx=task.sample_idx,
+                step_idx=task.step_idx,
+                query=task.query,
+                rollout=task.rollout,
+                step_text=task.step_text,
+                overall_adv=task.overall_adv,
+                llm_input_messages=_build_prompt(task.query, task.rollout, task.step_text, task.overall_adv),
+                llm_raw_output=f"ERROR: {str(e)}",
+                llm_parsed_result=is_good,
+                response_time=response_time,
+                timestamp=time.time(),
+                model_name=model_name,
+                evaluation_type="api",
+                global_step=global_step,
+                epoch=epoch
+            )
+            _save_evaluation_record(record, save_dir)
         
         return EvaluationResult(
             sample_idx=task.sample_idx,
@@ -371,7 +612,10 @@ async def evaluate_step_flags_parallel(tokenizer,
                                      max_concurrent: int = 20,
                                      batch_size_limit: int = 100,
                                      mask_tensor: torch.Tensor = None,
-                                     api_max_retries: int = 200) -> Tuple[List[List[bool]], Dict]:
+                                     api_max_retries: int = 200,
+                                     save_dir: Optional[str] = None,
+                                     global_step: Optional[int] = None,
+                                     epoch: Optional[str] = None) -> Tuple[List[List[bool]], Dict]:
     """
     并行评估step flags，支持本地模型和API两种方式
     对于advantage=0的样本跳过评估，直接返回GOOD
@@ -386,6 +630,9 @@ async def evaluate_step_flags_parallel(tokenizer,
         mask_tensor: 外部传入的mask tensor，shape (bs, resp_len)
                     可以是loss_mask或response_mask，如果为None则使用默认的loss_mask
         api_max_retries: API调用的最大重试次数，特别用于处理429错误
+        save_dir: 保存评估记录的目录
+        global_step: 全局步数
+        epoch: 训练轮次
         
     Returns:
         (flags_per_sample, stats): 评估结果和统计信息
@@ -393,6 +640,8 @@ async def evaluate_step_flags_parallel(tokenizer,
     batch_size = len(batch.batch['prompts'])
     print(f"[parallel_eval] Starting parallel evaluation for {batch_size} samples using {evaluation_type} mode")
     print(f"[parallel_eval] Model: {model_name}, API max retries: {api_max_retries}")
+    if save_dir:
+        print(f"[parallel_eval] Saving evaluation records to: {save_dir}")
     
     # 检查必要的输入
     if 'steps' not in batch.non_tensor_batch:
@@ -408,10 +657,22 @@ async def evaluate_step_flags_parallel(tokenizer,
             print(f"[parallel_eval] Failed to initialize vLLM model, using random fallback: {e}")
             return _apply_fallback_strategy_parallel(batch), {"fallback_used": True, "error": str(e), "evaluation_type": evaluation_type}
     elif evaluation_type == "api":
-        # 初始化API客户端
+        # 初始化API客户端，支持多种API key获取方式
+        api_key = None
+        
+        # 方式1：从环境变量获取（推荐）
         api_key = os.getenv("DASHSCOPE_API_KEY")
+        
+        # 方式2：如果环境变量没有，尝试从其他来源获取
         if not api_key:
-            print("[parallel_eval] No API key found, using random fallback")
+            # 可以在这里添加其他获取API key的方式
+            # 比如从配置文件、用户输入等
+            pass
+        
+        if not api_key:
+            print("[parallel_eval] No API key found in DASHSCOPE_API_KEY environment variable")
+            print("[parallel_eval] Please set: export DASHSCOPE_API_KEY='your-api-key'")
+            print("[parallel_eval] Using random fallback for evaluation")
             return _apply_fallback_strategy_parallel(batch), {"fallback_used": True, "evaluation_type": evaluation_type}
         
         api_client = AsyncOpenAI(
@@ -460,6 +721,28 @@ async def evaluate_step_flags_parallel(tokenizer,
             print(f"[parallel_eval] Sample {sample_idx}: advantage≈0 ({overall_adv:.6f}), skipping evaluation, returning all GOOD")
             flags_per_sample[sample_idx] = [True] * len(steps)  # 所有step都标记为GOOD
             skipped_samples += 1
+            
+            # 即使跳过评估，也保存记录（用于分析）
+            if save_dir:
+                for step_idx, step_text in enumerate(steps):
+                    record = EvaluationRecord(
+                        sample_idx=sample_idx,
+                        step_idx=step_idx,
+                        query=query,
+                        rollout=rollout,
+                        step_text=step_text,
+                        overall_adv=overall_adv,
+                        llm_input_messages=[],  # 空的，因为没有调用LLM
+                        llm_raw_output="SKIPPED_ZERO_ADVANTAGE",
+                        llm_parsed_result=True,  # 默认为GOOD
+                        response_time=0.0,
+                        timestamp=time.time(),
+                        model_name=model_name,
+                        evaluation_type=evaluation_type,
+                        global_step=global_step,
+                        epoch=epoch
+                    )
+                    _save_evaluation_record(record, save_dir)
             continue
         
         # 为非零advantage的样本创建评估任务
@@ -508,12 +791,12 @@ async def evaluate_step_flags_parallel(tokenizer,
             # 根据评估类型创建协程任务
             if evaluation_type == "local":
                 coroutines = [
-                    _evaluate_single_task_vllm(vllm_model, vllm_tokenizer, task, semaphore)
+                    _evaluate_single_task_vllm(vllm_model, vllm_tokenizer, task, semaphore, save_dir, global_step, epoch)
                     for task in batch_tasks
                 ]
             else:  # api
                 coroutines = [
-                    _evaluate_single_task_api(api_client, model_name, task, semaphore, api_max_retries)
+                    _evaluate_single_task_api(api_client, model_name, task, semaphore, max_retries, save_dir, global_step, epoch)
                     for task in batch_tasks
                 ]
             
@@ -554,7 +837,8 @@ async def evaluate_step_flags_parallel(tokenizer,
         "skipped_samples": skipped_samples,
         "evaluation_type": evaluation_type,
         "model_name": model_name,
-        "api_max_retries": api_max_retries
+        "api_max_retries": api_max_retries,
+        "save_dir": save_dir
     }
     
     print(f"[parallel_eval] Completed. Stats: {stats}")
@@ -737,7 +1021,10 @@ def evaluate_step_flags(tokenizer,
                         use_parallel: bool = True,
                         max_concurrent: int = 20,
                         mask_tensor: torch.Tensor = None,
-                        api_max_retries: int = 200) -> List[List[bool]]:
+                        api_max_retries: int = 200,
+                        save_dir: Optional[str] = None,
+                        global_step: Optional[int] = None,
+                        epoch: Optional[str] = None) -> List[List[bool]]:
     """
     兼容性包装函数，可选择使用并行或串行版本，支持本地和API评估
     
@@ -751,6 +1038,9 @@ def evaluate_step_flags(tokenizer,
         max_concurrent: 最大并发数
         mask_tensor: 外部传入的mask tensor
         api_max_retries: API调用的最大重试次数，特别用于处理429错误
+        save_dir: 保存评估记录的目录
+        global_step: 全局步数
+        epoch: 训练轮次
     """
     if use_parallel:
         # 使用异步并行版本
@@ -768,7 +1058,10 @@ def evaluate_step_flags(tokenizer,
                 evaluation_type=evaluation_type,
                 max_concurrent=max_concurrent,
                 mask_tensor=mask_tensor,  # 传入外部mask
-                api_max_retries=api_max_retries  # 传入API重试次数
+                api_max_retries=api_max_retries,  # 传入API重试次数
+                save_dir=save_dir,  # 传入保存目录
+                global_step=global_step,  # 传入全局步数
+                epoch=epoch  # 传入训练轮次
             )
         )
         
@@ -847,7 +1140,10 @@ class ParallelSemanticProcessor:
                           consistent_scale: float = 1.0,
                           pos_unconsistent_scale: float = 0.2,
                           neg_unconsistent_scale: float = -0.2,
-                          mask_tensor: torch.Tensor = None) -> Dict:
+                          mask_tensor: torch.Tensor = None,
+                          save_dir: Optional[str] = None,
+                          global_step: Optional[int] = None,
+                          epoch: Optional[str] = None) -> Dict:
         """
         处理整个batch的语义评估和mask应用
         对于advantage=0的样本会跳过评估
@@ -858,6 +1154,9 @@ class ParallelSemanticProcessor:
             consistent_scale, pos_unconsistent_scale, neg_unconsistent_scale: 缩放因子
             mask_tensor: 外部传入的mask tensor，shape (bs, resp_len)
                         可以是loss_mask或response_mask
+            save_dir: 保存评估记录的目录
+            global_step: 全局步数
+            epoch: 训练轮次
         
         Returns:
             综合统计信息
@@ -867,6 +1166,8 @@ class ParallelSemanticProcessor:
         # 1. 并行评估step flags
         eval_method = "vLLM" if self.evaluation_type == "local" else "API"
         print(f"[ParallelSemanticProcessor] Starting step evaluation with {eval_method}...")
+        if save_dir:
+            print(f"[ParallelSemanticProcessor] Evaluation records will be saved to: {save_dir}")
         eval_start = time.time()
         
         step_flags, eval_stats = await evaluate_step_flags_parallel(
@@ -877,7 +1178,10 @@ class ParallelSemanticProcessor:
             max_concurrent=self.max_concurrent,
             batch_size_limit=self.batch_size_limit,
             mask_tensor=mask_tensor,  # 传入外部mask
-            api_max_retries=self.api_max_retries  # 传入API重试次数
+            api_max_retries=self.api_max_retries,  # 传入API重试次数
+            save_dir=save_dir,  # 传入保存目录
+            global_step=global_step,  # 传入全局步数
+            epoch=epoch  # 传入训练轮次
         )
         
         eval_time = time.time() - eval_start
@@ -915,14 +1219,19 @@ class ParallelSemanticProcessor:
                 "evaluation_type": self.evaluation_type,
                 "using_vllm": self.evaluation_type == "local",
                 "model_name": self.model_name,
-                "api_max_retries": self.api_max_retries
+                "api_max_retries": self.api_max_retries,
+                "save_dir": save_dir
             }
         }
         
         print(f"[ParallelSemanticProcessor] Total processing time: {total_time:.2f}s")
         return combined_stats
     
-    def process_batch_sync(self, tokenizer, batch, mask_tensor: torch.Tensor = None, **kwargs) -> Dict:
+    def process_batch_sync(self, tokenizer, batch, mask_tensor: torch.Tensor = None, 
+                          save_dir: Optional[str] = None,
+                          global_step: Optional[int] = None,
+                          epoch: Optional[str] = None,
+                          **kwargs) -> Dict:
         """
         同步版本的batch处理
         
@@ -930,6 +1239,9 @@ class ParallelSemanticProcessor:
             tokenizer: 分词器
             batch: 批次数据
             mask_tensor: 外部传入的mask tensor
+            save_dir: 保存评估记录的目录
+            global_step: 全局步数
+            epoch: 训练轮次
             **kwargs: 其他参数
         """
         try:
@@ -939,5 +1251,6 @@ class ParallelSemanticProcessor:
             asyncio.set_event_loop(loop)
         
         return loop.run_until_complete(
-            self.process_batch(tokenizer, batch, mask_tensor=mask_tensor, **kwargs)
+            self.process_batch(tokenizer, batch, mask_tensor=mask_tensor, 
+                             save_dir=save_dir, global_step=global_step, epoch=epoch, **kwargs)
         )

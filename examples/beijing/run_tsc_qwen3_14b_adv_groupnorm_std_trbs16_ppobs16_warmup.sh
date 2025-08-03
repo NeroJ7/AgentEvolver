@@ -12,7 +12,7 @@ CONFIG_PATH="$PROJECT_DIR/config"
 # completion_callback=none
 env_url=http://$MASTER_ADDR:8000
 current_time=$(date "+%Y%m%d_%H%M%S")
-suffix="qwen3_14b_adv_groupnorm_std_trbs32_ppobs16_warmup"
+suffix="qwen3_14b_adv_groupnorm_std_trbs16_ppobs16_warmup"
 log_file="/mnt/data/taoshuchang.tsc/beyondagent/BeyondAgent/logs/qwen3/${suffix}_${current_time}.log"
 
 # Ray - 修改为直接连接Ray集群，而不是通过Job API
@@ -49,7 +49,7 @@ python -m beyondagent.main_ppo \
     semantic_advantage.adv_norm.level="group" \
     actor_rollout_ref.rollout.val_kwargs.n=8 \
     env_sparse=true \
-    data.train_batch_size=16 \
+    data.train_batch_size=32 \
     data.max_prompt_length=4096 \
     data.max_response_length=20480 \
     data.filter_overlong_prompts=True \
