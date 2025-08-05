@@ -19,10 +19,10 @@ class EnvWorker(object):
         self.task_id: str = task.task_id
         self.instance_id: str = instance_id if instance_id is not None else uuid.uuid4().hex
         self.thread_index: int = thread_index
-
+    
+    
     def execute(self, data_id: str, rollout_id: str, agent_flow: BaseAgentFlow, system_prompt: Optional[str] = None, **kwargs) -> Trajectory:
         trajectory: Trajectory = Trajectory(data_id=data_id, rollout_id=rollout_id, steps=[], query="")
-
         try:
             init_response = self.env.create_instance(env_type=self.env_type,
                                                     task_id=self.task_id,
@@ -31,8 +31,7 @@ class EnvWorker(object):
             logger.exception(f"encounter exception in env_worker.create_instance~ error={e.args}")
             trajectory.metadata['error']='env'
             return trajectory
-        
-        
+
 
         try:
             state_message: list[dict] = init_response["state"]

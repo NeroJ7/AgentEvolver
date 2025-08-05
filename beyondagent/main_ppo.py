@@ -194,10 +194,12 @@ class TaskRunner:
             old_retrival=NaiveTaskObjectiveRetrieval(),
             mixture_strategy=UnifiedMixtureStrategy(
                 use_original=config.task_manager.mixture.use_original_tasks,
+                original_data_ratio=config.task_manager.mixture.original_data_ratio,
                 synthetic_ratio=config.task_manager.mixture.synthetic_data_ratio,
                 shuffle=config.task_manager.mixture.shuffle,
                 seed=42,
                 ),
+            reward_config=config.task_manager.grader,
             tokenizer=tokenizer,
             env_service_url=config.env_service.env_url,
             num_explore_threads=config.task_manager.num_explore_threads,
@@ -210,6 +212,7 @@ class TaskRunner:
             llm_client=llm_client, # or use policy model
             old_retrival=NaiveTaskObjectiveRetrieval(),
             mixture_strategy=OriginalOnlyStrategy(),
+            reward_config=config.task_manager.grader,
             tokenizer=tokenizer,
             env_service_url=config.env_service.env_url,
             num_explore_threads=config.task_manager.num_explore_threads,

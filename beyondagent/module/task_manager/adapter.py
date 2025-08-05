@@ -12,7 +12,7 @@ from omegaconf import DictConfig, ListConfig
 from transformers.tokenization_utils import PreTrainedTokenizer
 from transformers.processing_utils import ProcessorMixin
 
-def convert_to_tasks(dataset:RLHFDataset,env_type:str)->list[Task]:
+def convert_to_tasks(dataset:RLHFDataset,env_type:str, grader:str)->list[Task]:
     """将来自环境的原本 RLHFDataset 转为供 TaskManager 使用的 Task 列表
     """
     res=[]
@@ -21,7 +21,7 @@ def convert_to_tasks(dataset:RLHFDataset,env_type:str)->list[Task]:
         task = Task(
             task_id=record["extras"]["task_id"],
             env_type=env_type,
-            evaluator="env",
+            evaluator=grader,
         )
         res.append(task)
     

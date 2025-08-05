@@ -1,10 +1,18 @@
-from typing import cast
+from typing import Optional, cast
 from beyondagent.client.env_client import EnvClient
 from beyondagent.client.llm_client import DashScopeClient
 from beyondagent.module.agent_flow.reward_calculator import RewardCalculator
 from beyondagent.schema.trajectory import Trajectory
 
-USER_PROMPT="""Based on the conversation trajectory above, evaluate the task completion quality using the framework provided.
+from . import grader_manager
+
+USER_PROMPT="""Based on the conversation trajectory above and the provided **Reference Solution**, evaluate the task completion quality using the framework provided.
+
+---
+To assist in your evaluation, a reference solution is provided below. Please note that this solution demonstrates a correct approach and outcome, but it may not be the *only* correct way to solve the task. A different but equally valid solution from the agent should also be considered successful.
+
+{{reference_solution}}
+---
 
 Your evaluation should address the following dimensions in order:
 
@@ -19,9 +27,10 @@ Your evaluation should address the following dimensions in order:
  - If steps are irrelevant: 0 points
 
 **Step 3: Goal Achievement Assessment (Critical Binary Check)**
-- Examine ALL steps comprehensively to determine if the task goal is truly achieved
-- Do not be misled by superficial language - verify actual completion
-- Check if there is a correct final answer or if the stated objective is genuinely accomplished
+- Examine ALL steps comprehensively to determine if the task goal is truly achieved.
+- **Crucially, compare the agent's final result and solution path with the provided "Reference Solution" to aid in judging correctness.**
+- Do not be misled by superficial language - verify actual completion.
+- If the agent's solution is different from the reference but is also correct and achieves the same goal, it MUST be considered as the goal being achieved.
 
 **MANDATORY SCORING CONSTRAINTS:**
 - If steps are relevant AND goal is achieved/answer is correct: Score MUST be 60-100
@@ -29,42 +38,39 @@ Your evaluation should address the following dimensions in order:
 - FORBIDDEN: Do not assign scores between 41-59
 
 **Step 4: Additional Deductions (within the above constraints)**
-- **Code Execution Errors**: Deduct points for runtime errors, bugs, or failed executions
-- **Unnecessary/Irrelevant Steps**: Deduct points for redundant or off-topic actions
+- **Code Execution Errors**: Deduct points for runtime errors, bugs, or failed executions.
+- **Efficiency and Conciseness**: Compare the agent's steps to the "Reference Solution". If the agent's approach is significantly more cumbersome, redundant, or roundabout than the reference, deduct points accordingly, even if the final answer is correct. Unnecessary or irrelevant steps fall under this category.
 
 **Scoring Guidelines:**
-- 90-100: Exceptional performance - goal achieved with efficient, clean execution
-- 80-89: Strong performance - goal achieved with minor inefficiencies or small errors
-- 70-79: Good performance - goal achieved with some unnecessary steps or code issues
-- 60-69: Adequate performance - goal achieved but with notable problems
-- 30-40: Poor performance - goal not achieved but relevant approach with some progress
-- 10-29: Very poor performance - goal not achieved with major execution issues
-- 1-9: Minimal relevant attempt - goal not achieved with severe problems
-- 0: Complete failure - irrelevant approach or infinite repetition of irrelevant steps
+- 90-100: Exceptional performance - goal achieved with an efficient and clean execution, comparable to or better than the reference solution.
+- 80-89: Strong performance - goal achieved with minor inefficiencies or small errors when compared to the reference.
+- 70-79: Good performance - goal achieved, but the process was notably less efficient or contained more unnecessary steps than the reference.
+- 60-69: Adequate performance - goal achieved but with significant problems in efficiency, clarity, or execution.
+- 30-40: Poor performance - goal not achieved but relevant approach with some progress, showing some understanding of the path outlined in the reference.
+- 10-29: Very poor performance - goal not achieved with major execution issues or a path that barely aligns with a correct solution.
+- 1-9: Minimal relevant attempt - goal not achieved with severe problems.
+- 0: Complete failure - irrelevant approach or infinite repetition of irrelevant steps.
 
-**REMEMBER**: 
-- No scores between 41-59 are allowed
-- Goal achievement determines the 60+ vs 0-40 range
-- Infinite repetition caps score at 20 (if steps are relevant) or 0 (if irrelevant)
+**REMEMBER**:
+- No scores between 41-59 are allowed.
+- Goal achievement determines the 60+ vs 0-40 range.
+- The Reference Solution is a guide for correctness and efficiency, not a rigid script.
 
 Provide your detailed analysis first, explaining your reasoning for each evaluation dimension. Then assign a precise integer score following the mandatory constraints above.
 
-First provide your detailed reasoning analysis, then output an integer score between 0-40 or 60-100 enclosed in <reward></reward> tags, e.g., <reward>75</reward>
+First provide your detailed reasoning analysis, then output an integer score between 0-40 or 60-100 enclosed in `<reward></reward>` tags, e.g., `<reward>75</reward>`
 """
-# query & reward improvement
-# TODO 可以与 appworld grader 算【相关性】
-# 非 sparse reward 对 llm 的要求会比较低
-# use 0～100
-# 要试试把 reference traj 拿过来吗
 
+@grader_manager.reg("llm-gt")
 class LlmAsJudgeRewardCalculatorWithGT(RewardCalculator):
     """
     RewardCalculator that uses LLM as judge.
     
     TODO: This is a temperary solution for synthetic data.
     """
-    def __init__(self, model_name='qwen-plus'):
+    def __init__(self, model_name='qwq-plus'):
         self._client=DashScopeClient(model_name=model_name)
+        self._gt="[No solution provided, please judge the task by yourself]"
     
     def pack_message(self, trajectory: Trajectory):
         """Pack trajectory into a message.
@@ -82,8 +88,12 @@ class LlmAsJudgeRewardCalculatorWithGT(RewardCalculator):
             trajectory_text += f"{role.upper()}: {content}\n\n"
         
         messages.append({"role": "user", "content": trajectory_text})
-        messages.append({"role":"user","content":USER_PROMPT})
+        user_prompt=USER_PROMPT.replace("{{reference_solution}}",self._gt)
+        messages.append({"role":"user","content":user_prompt})
         return messages
+    
+    def set_gt(self,gt:Optional[str]):
+        self._gt=gt if gt is not None else "[No solution provided, please judge the task by yourself]"
     
     def calculate_reward(self, trajectory: Trajectory, env: EnvClient) -> float:
         x=cast(float,self._calculate_reward(trajectory,env,eject_llm_output=False))

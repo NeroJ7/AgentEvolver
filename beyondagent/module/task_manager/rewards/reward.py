@@ -4,6 +4,8 @@ from beyondagent.client.llm_client import DashScopeClient
 from beyondagent.module.agent_flow.reward_calculator import RewardCalculator
 from beyondagent.schema.trajectory import Trajectory
 
+from . import grader_manager
+
 USER_PROMPT="""Based on the conversation trajectory above, evaluate the task completion quality using the framework provided.
 
 Your evaluation should address the following dimensions in order:
@@ -51,19 +53,15 @@ Provide your detailed analysis first, explaining your reasoning for each evaluat
 
 First provide your detailed reasoning analysis, then output an integer score between 0-40 or 60-100 enclosed in <reward></reward> tags, e.g., <reward>75</reward>
 """
-# query & reward improvement
-# TODO 可以与 appworld grader 算【相关性】
-# 非 sparse reward 对 llm 的要求会比较低
-# use 0～100
-# 要试试把 reference traj 拿过来吗
 
+@grader_manager.reg("llm")
 class LlmAsJudgeRewardCalculator(RewardCalculator):
     """
     RewardCalculator that uses LLM as judge.
     
     TODO: This is a temperary solution for synthetic data.
     """
-    def __init__(self, model_name='qwen-plus'):
+    def __init__(self, model_name='qwq-plus'):
         self._client=DashScopeClient(model_name=model_name)
     
     def pack_message(self, trajectory: Trajectory):

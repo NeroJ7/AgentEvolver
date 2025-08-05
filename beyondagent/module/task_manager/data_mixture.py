@@ -47,7 +47,7 @@ class UnifiedMixtureStrategy(MixtureStrategy):
         UnifiedMixtureStrategy(use_original=True, synthetic_ratio=1.5)
     """
     
-    def __init__(self, use_original: bool = True, synthetic_ratio: float = 0.0, shuffle: bool = True, seed: Optional[int] = None):
+    def __init__(self, use_original: bool = True, original_data_ratio: float = 1.0, synthetic_ratio: float = 0.0, shuffle: bool = True, seed: Optional[int] = None):
         """
         Args:
             use_original: 是否使用原始数据
@@ -61,6 +61,7 @@ class UnifiedMixtureStrategy(MixtureStrategy):
             seed: 随机种子，用于控制抽样和shuffle的随机性
         """
         self._use_original = use_original
+        self._original_data_ratio=original_data_ratio
         self._synthetic_ratio = synthetic_ratio
         self._shuffle = shuffle
         self._seed = seed
@@ -79,7 +80,9 @@ class UnifiedMixtureStrategy(MixtureStrategy):
         
         if self._use_original:
             mixed_objectives.extend(original_tasks)
-            logger.info(f"added {len(original_tasks)} original tasks")
+            if self._original_data_ratio>1.0:
+                mixed_objectives = mixed_objectives * int(self._original_data_ratio)
+            logger.info(f"added {len(original_tasks)} original tasks ({len(original_tasks)} x {self._original_data_ratio} times)")
         
         if self._synthetic_ratio > 0:
             target_synthetic_count = int(len(original_tasks) * self._synthetic_ratio)

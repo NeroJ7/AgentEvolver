@@ -32,7 +32,7 @@ actor_rollout_ref:
       path: ""
       name: ""
     use_qwen3: True
-    max_env_worker: 64
+    max_env_worker: 32
     max_model_len: 20480
     max_env_len: 4096
     enable_request_id: False
@@ -55,8 +55,13 @@ task_manager:
 
   mixture:
     use_original_tasks: True
+    original_data_ratio: 1.0
     synthetic_data_ratio: 0.0
     shuffle: True
+
+  grader:
+    original_grader: env
+    synthetic_grader: llm
 
   # strategy: random
   # strategy_args:

@@ -46,6 +46,9 @@ class TaskManagerProps(TypedDict):
     num_explore_threads: int
     n: int # 重复探索的控制必须放在这里，task manager 要规划 task 执行顺序，避免在同时探索相同任务导致潜在的 query 重复
 
+class RewardProps(TypedDict):
+    original_grader:str
+    synthetic_grader:str
 
 class TaskManager(object):
 
@@ -57,6 +60,7 @@ class TaskManager(object):
         llm_client: LlmClient,
         old_retrival: TaskObjectiveRetrieval,
         mixture_strategy: MixtureStrategy,
+        reward_config: RewardProps,
         tokenizer,
         env_service_url: str,
         **kwargs: Unpack[TaskManagerProps],
@@ -66,6 +70,7 @@ class TaskManager(object):
         self._llm_client = llm_client
         self._old_retrival = old_retrival
         self._mixture_strategy = mixture_strategy
+        self._reward_config=reward_config
         self._env_service_url = env_service_url
         self._tokenizer = tokenizer  # cc: 这玩意似乎不该在这
         self._num_exploration_threads = kwargs["num_explore_threads"] or 10
@@ -87,14 +92,14 @@ class TaskManager(object):
         logger.info(f"loaded tasks, #tasks={len(self._tasks)}")
         
     def load_tasks_from_dataset(self, dataset: RLHFDataset,*, env_type:str):
-        self._tasks.extend(adapter.convert_to_tasks(dataset,env_type=env_type))
+        self._tasks.extend(adapter.convert_to_tasks(dataset,env_type=env_type,grader=self._reward_config["original_grader"]))
         assert all([x.query is None for x in self._tasks]), "query of seed task must be empty"
         logger.info(f"loaded tasks from dataset, #tasks={len(self._tasks)}")
     
     def load_tasks_from_environment(self, env: EnvClient, *, env_type: str, split: str, params: Optional[dict] = None):
         try:
             response = env.get_env_profile(env_type, split, params)
-            self._tasks.extend([Task(task_id=str(x),env_type=env_type,evaluator='env') for x in response])
+            self._tasks.extend([Task(task_id=str(x),env_type=env_type,evaluator=self._reward_config["original_grader"]) for x in response])
             assert all([x.query is None for x in self._tasks]), "query of seed task must be empty"
             logger.info(f"loaded tasks from environment, #tasks={len(self._tasks)}")
         except requests.exceptions.RequestException as e:
@@ -123,7 +128,7 @@ class TaskManager(object):
         """Get the full dataset, or load from file.
         """
         seed_tasks=[TaskObjective(task=task,confidence=1.0,reward=None) for task in self._tasks]
-        dataset=FullDataset(self,seed_tasks,self._mixture_strategy,tokenizer=tokenizer,config=config,processor=processor)
+        dataset=FullDataset(self,seed_tasks,self._mixture_strategy,self._reward_config,tokenizer=tokenizer,config=config,processor=processor)
         
         if filepath is not None and os.path.exists(filepath):
             logger.info(f"loading full dataset from {filepath}")
@@ -139,7 +144,7 @@ class TaskManager(object):
         """Get the original dataset.
         """
         seed_tasks=[TaskObjective(task=task,confidence=1.0,reward=None) for task in self._tasks]
-        dataset = FullDataset(self,seed_tasks,OriginalOnlyStrategy(),tokenizer=tokenizer,config=config,processor=processor)
+        dataset = FullDataset(self,seed_tasks,OriginalOnlyStrategy(),self._reward_config,tokenizer=tokenizer,config=config,processor=processor)
         dataset.load_from_file('[unknown]')
         return dataset
     
@@ -224,6 +229,7 @@ class FullDataset(Dataset):
                  manager: TaskManager, 
                  tasks: Sequence[TaskObjective],
                  mixture_strategy: MixtureStrategy,
+                 reward_config:RewardProps,
                  *, 
                  tokenizer, 
                  config, 
@@ -239,7 +245,9 @@ class FullDataset(Dataset):
         """
         self._manager = manager
         self._tasks = list(tasks)
+        assert all([x.task.evaluator==reward_config["original_grader"] for x in tasks]), "task evaluator must be set as the config"
         self._mixture_strategy = mixture_strategy
+        self._reward_config=reward_config
         self._tokenizer = tokenizer
         self._config = config
         self._processor = processor
@@ -269,6 +277,10 @@ class FullDataset(Dataset):
             logger.warning(f"failed to load objectives from {filepath}, file not found.")
             self._synthetic_objectives = []
         
+        logger.info("patching grader config to all synthetic data")
+        for item in self._synthetic_objectives:
+            item.task.evaluator=self._reward_config["synthetic_grader"]
+        
         # 使用混合策略处理数据
         self._objectives = self._mixture_strategy.mix_data(self._synthetic_objectives, self._tasks)
         
@@ -280,6 +292,10 @@ class FullDataset(Dataset):
         """重新生成数据"""
         # 生成合成数据
         self._synthetic_objectives = self._manager.generate_task([x.task for x in self._tasks], show_progress=True)
+        
+        logger.info("patching grader config to all synthetic data")
+        for item in self._synthetic_objectives:
+            item.task.evaluator=self._reward_config["synthetic_grader"]
         
         # 使用混合策略处理数据
         self._objectives = self._mixture_strategy.mix_data(self._synthetic_objectives, self._tasks)

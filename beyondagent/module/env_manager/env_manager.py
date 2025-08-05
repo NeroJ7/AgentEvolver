@@ -10,7 +10,6 @@ from omegaconf import DictConfig
 from tensordict import TensorDict
 from torch.nn.utils.rnn import pad_sequence
 from tqdm import tqdm
-from beyondagent.module.task_manager.rewards.reward import LlmAsJudgeRewardCalculator
 from verl import DataProto
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils.torch_functional import (pad_sequence_to_length)
@@ -19,8 +18,10 @@ from beyondagent.module.agent_flow.agent_flow import AgentFlow
 from beyondagent.module.agent_flow.base_agent_flow import BaseAgentFlow
 from beyondagent.module.env_manager.env_worker import EnvWorker
 from beyondagent.module.trainer.ba_async_llm_server_manager import BaAsyncLLMServerManager
+from beyondagent.module.task_manager.rewards import grader_manager
 from beyondagent.schema.task import Task
 from beyondagent.schema.trajectory import Trajectory, Sample
+from beyondagent.module.task_manager.rewards import LlmAsJudgeRewardCalculator,LlmAsJudgeRewardCalculatorWithGT,grader_manager
 
 
 class ParallelEnvManager(object):
@@ -92,8 +93,13 @@ class ParallelEnvManager(object):
             sampling_params["top_p"] = self.rollout_config.val_kwargs.top_p
 
         llm_chat_fn = self.get_llm_chat_fn(sampling_params)
+        
+        # TODO refactor this
+        reward_caculator=grader_manager.get_calculator(task.evaluator)
+        if isinstance(reward_caculator,LlmAsJudgeRewardCalculatorWithGT):
+            reward_caculator.set_gt(task.ground_truth)
         agent_flow: BaseAgentFlow = AgentFlow(
-            reward_calculator=LlmAsJudgeRewardCalculator("qwq-plus") if task.evaluator=='synthetic' else None, # TODO: better calculator injection
+            reward_calculator=reward_caculator,
             llm_chat_fn=llm_chat_fn, 
             tokenizer=self.tokenizer, 
             config=self.config,
@@ -153,6 +159,8 @@ class ParallelEnvManager(object):
                         if 'error' in result.metadata:
                             error_msg = result.metadata['error']
                             logger.warning(f"Task {params[1]}-{params[2]} failed with metadata error: {error_msg}. Retrying... \n Task: {params[0]}")
+                            # 强行等待
+                            time.sleep(30)
                             # 将任务重新提交
                             new_future = executor.submit(self.rollout_env_worker, *params) # type: ignore
                             future_to_params[new_future] = params
