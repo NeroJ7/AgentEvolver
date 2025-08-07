@@ -97,25 +97,20 @@ def build_batch_evaluation_prompt(
 
     # ---------------- system ----------------
     sys_msg = (
-        "You are an expert reward-model evaluator.\n\n"
-        "You will receive **one message** that contains three clearly-labelled sections:\n"
-        "  1. **OVERALL ADVANTAGE** – a quality score for the *whole solution produced by executing all steps below*.\n"
-        "  2. **TASK DESCRIPTION** – the user's original request (labelled `### TASK DESCRIPTION`).\n"
-        "  3. **SOLUTION TRAJECTORY** – a numbered sequence of steps taken by the assistant, each in the form:\n"
-        "     ```\n"
-        "     === STEP k ===\n"
-        "     <|ACTION|>\n"
-        "     ...assistant action text...\n"
-        "     <|END|>\n"
-        "     [optional]\n"
-        "     <|OBSERVATION|>\n"
-        "     ...environment / user feedback...\n"
-        "     <|END|>\n"
-        "     ```\n\n"
-        "For **every step**, decide whether its *ACTION* helps (**GOOD**) or hurts (**BAD**) "
-        "achieving the task, taking the OBSERVATION into account when present. "
-        "Use OVERALL ADVANTAGE only as supplementary context; do **not** let it override local judgment.\n\n"
-        "Reply strictly in the *REQUIRED OUTPUT FORMAT* and output nothing else."
+        "You are an expert *process* reward evaluator.\n\n"
+        "The single message you receive always contains three labelled sections:\n"
+        "  1. OVERALL ADVANTAGE – a scalar summarising the final answer quality.\n"
+        "  2. TASK DESCRIPTION   – the user’s original request.\n"
+        "  3. SOLUTION TRAJECTORY – a numbered list of assistant steps.\n\n"
+        "Evaluation rule:\n"
+        "• If OVERALL ADVANTAGE is **positive (> 0)**, judge each step by whether its ACTION\n"
+        "  makes the overall answer *even better* than before (incremental improvement).\n"
+        "• If OVERALL ADVANTAGE is **negative (< 0)**, judge each step by whether it *actively\n"
+        "  corrects the existing error*. Mark GOOD **only** when the ACTION clearly fixes or\n"
+        "  moves the answer towards correctness; otherwise mark BAD.\n\n"
+        "Ignore superficial politeness or formatting. Focus strictly on the technical impact\n"
+        "of the ACTION (and OBSERVATION if present).\n\n"
+        "Reply IN THE REQUIRED OUTPUT FORMAT and output nothing else."
     )
 
     # ---------------- helpers ----------------
@@ -134,7 +129,7 @@ def build_batch_evaluation_prompt(
 
     for idx, st in enumerate(steps):
         block = [
-            f"=== STEP {idx} ===",
+            f">>> EVAL-STEP {idx} <<<",
             "<|ACTION|>",
             _trim(st['action']),
             "<|END|>",
@@ -150,7 +145,9 @@ def build_batch_evaluation_prompt(
     user_parts += [
         "",
         "---",
-        "For each step, think: *Does this help solve the task?*",
+        "Evaluation reminder:",
+        "• Positive overall advantage → ask: *Does this step further improve the answer?*",
+        "• Negative overall advantage → ask: *Does this step clearly correct the error?*",
         "",
         "REQUIRED OUTPUT FORMAT:",
         "Step 0 Analysis: <your reasoning>",
@@ -248,104 +245,102 @@ def _save_evaluation_record(record: EvaluationRecord, save_dir: Optional[str] = 
 # API评估 - 增强的重试机制
 # ————————————————————————————————————————————————————————————————
 
-async def _async_safe_query(client: AsyncOpenAI, model: str, messages: list[dict], semaphore: asyncio.Semaphore, max_retries: int = 200) -> str:
-    """异步安全的API调用，增强的重试机制"""
+async def _async_safe_query(
+    client: AsyncOpenAI,
+    model: str,
+    messages: list[dict],
+    semaphore: asyncio.Semaphore,
+    max_retries: int = 200,
+    timeout_s: int = 120,         # 可调：单次请求超时阈值
+) -> str:
+    """异步 API 调用：对 **所有** 异常重试，429 用指数退避"""
     async with semaphore:
         last_exception = None
-        
+
         for attempt in range(max_retries):
             try:
-                is_thinking_model = model.lower() in ["qwq-plus", "qwen3-30b-a3b-thinking-2507", "qwen3-235b-a22b-thinking-2507"]
-                
+                # ---------- 普通 / thinking 模型分支 ----------
+                is_thinking_model = model.lower() in {
+                    "qwq-plus",
+                    "qwen3-30b-a3b-thinking-2507",
+                    "qwen3-235b-a22b-thinking-2507",
+                }
+
                 if is_thinking_model:
                     print(f"[API] Using streaming mode for thinking model: {model}")
-                    
                     response = await client.chat.completions.create(
                         model=model,
                         messages=messages,
                         temperature=0.0,
                         extra_body={"enable_thinking": True},
                         stream=True,
-                        max_tokens=10000,  # 增加token数量，因为要评估多个steps
+                        max_tokens=10_000,
+                        timeout=timeout_s,
                     )
-                    
-                    answer_content = ""
-                    reasoning_content = ""
-                    is_answering = False
-                    
+
+                    answer_content, reasoning_content = "", ""
                     async for chunk in response:
                         if not chunk.choices:
                             continue
-                        
                         delta = chunk.choices[0].delta
-                        
-                        if hasattr(delta, "reasoning_content") and delta.reasoning_content is not None:
+                        if getattr(delta, "reasoning_content", None):
                             reasoning_content += delta.reasoning_content
-                        
-                        if hasattr(delta, "content") and delta.content:
-                            if not is_answering:
-                                is_answering = True
+                        if getattr(delta, "content", ""):
                             answer_content += delta.content
-                    
+
                     final_answer = answer_content.strip()
-                    print(f"[API] Thinking model response - Answer: '{final_answer[:100]}...' (reasoning length: {len(reasoning_content)})")
                     return final_answer
-                    
+
                 else:
                     response = await client.chat.completions.create(
                         model=model,
                         messages=messages,
                         temperature=0.0,
-                        timeout=30,
-                        max_tokens=10000,  # 增加token数量，因为要评估多个steps
+                        timeout=timeout_s,
+                        max_tokens=10_000,
                     )
                     return response.choices[0].message.content.strip()
-                
-            except Exception as e:
+
+            # ---------- 统一异常处理 ----------
+            except Exception as e:                # ❶ 捕获所有异常
                 last_exception = e
-                error_str = str(e).lower()
-                
-                is_rate_limit_error = (
-                    "429" in error_str or 
-                    "rate limit" in error_str or
-                    "limit_requests" in error_str or
-                    "exceeded your current requests" in error_str
+                err = str(e).lower()
+
+                is_rate_limit = any(
+                    key in err
+                    for key in [
+                        "429",
+                        "rate limit",
+                        "exceeded your current requests",
+                        "limit_requests",
+                    ]
                 )
-                
-                is_retryable_error = (
-                    "timeout" in error_str or
-                    "connection" in error_str or
-                    "500" in error_str or
-                    "502" in error_str or
-                    "503" in error_str or
-                    "504" in error_str
-                )
-                
+
+                # ----------- 若未到最大重试次数 -----------
                 if attempt < max_retries - 1:
-                    if is_rate_limit_error:
-                        base_wait = min(1.0 * (2 ** min(attempt, 6)), 60.0)
-                        import random
-                        jitter = random.uniform(0.1, 0.3) * base_wait
-                        wait_time = base_wait + jitter
-                        
-                        print(f"[API Retry] 429 Rate limit, attempt {attempt + 1}/{max_retries}, waiting {wait_time:.2f}s")
-                        await asyncio.sleep(wait_time)
-                        
-                    elif is_retryable_error:
-                        wait_time = min(2.0 * (attempt + 1), 10.0)
-                        print(f"[API Retry] Retryable error, attempt {attempt + 1}/{max_retries}, waiting {wait_time:.2f}s: {e}")
-                        await asyncio.sleep(wait_time)
-                        
+                    # 429 → 指数退避 + 抖动
+                    if is_rate_limit:
+                        backoff = min(1.5 ** attempt, 60)       # 上限 60 s
+                        jitter  = backoff * 0.25 * random.random()
+                        wait    = backoff + jitter
+                        print(f"[API Retry] 429 (attempt {attempt+1}/{max_retries}) "
+                              f"sleep {wait:.1f}s")
+                        await asyncio.sleep(wait)
                     else:
-                        print(f"[API Error] ❌ Non-retryable error, failing immediately: {e}")
-                        break
+                        # 其它异常 → 线性退避
+                        wait = min(2.0 * (attempt + 1), 15)
+                        print(f"[API Retry] {type(e).__name__}: {e} "
+                              f"(attempt {attempt+1}/{max_retries}) sleep {wait:.1f}s")
+                        await asyncio.sleep(wait)
+                    # 继续 for-loop
                 else:
-                    if is_rate_limit_error:
-                        print(f"[API Error] ❌ Rate limit exceeded after {max_retries} attempts")
-                    else:
-                        print(f"[API Error] ❌ Max retries ({max_retries}) exceeded: {e}")
-        
+                    # ----------- 已达到最大重试次数 -----------
+                    print(f"[API Error] ❌ Max retries ({max_retries}) exceeded: {e}")
+                    break
+
+        # loop 结束仍失败 → 抛出最后一次异常
         raise last_exception
+
 
 async def _evaluate_single_sample_api(
     client: AsyncOpenAI,
