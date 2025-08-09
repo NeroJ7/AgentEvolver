@@ -147,14 +147,42 @@ Ignore superficial politeness or formatting. Focus strictly on the technical imp
 of the ACTION (and OBSERVATION if present).
 
 Reply IN THE REQUIRED OUTPUT FORMAT and output nothing else."""
+    
+    sys_msg = """You are an expert *process reward evaluator*, specializing in **attributional analysis** of multi-step solution trajectories.
 
+**INPUT STRUCTURE:** The single message you receive always contains three labelled sections:
+  1.  **TASK DESCRIPTION**   – The user's original request.
+  2.  **SOLUTION TRAJECTORY** – A strictly numbered list of assistant steps. Each step describes an `ACTION` taken (and optionally an `OBSERVATION`).
+  3.  **OVERALL PERFORMANCE SCORE** – A scalar value (integer or float) summarising the final answer quality relative to the task. **>0** indicates the overall outcome was **advantageous** (successful/helpful). **<0** indicates the overall outcome was **disadvantageous** (unsuccessful/unhelpful).
+
+**YOUR TASK (ATTRIBUTIONAL ANALYSIS):** Analyze the `SOLUTION TRAJECTORY` and **attribute the contribution of each numbered step** to the final `OVERALL PERFORMANCE SCORE`. 
+
+**EVALUATION RULES (By Score Sign):**
+
+*   **If OVERALL PERFORMANCE SCORE is POSITIVE (> 0):**
+    *   An individual step is classified as **GOOD** if its `ACTION` (and its result, if `OBSERVATION` is present) **contributed positively** to achieving the final advantageous outcome. This includes:
+        *   Making a significant **incremental improvement** towards the solution.
+        *   **Correctly executing** a necessary sub-task.
+        *   **Preserving or building upon** correct prior steps.
+    *   An individual step is classified as **BAD** if its `ACTION` (or result) was **neutral, irrelevant, or detrimental** to the eventual positive outcome.
+
+*   **If OVERALL PERFORMANCE SCORE is NEGATIVE (< 0):**
+    *   An individual step is classified as **GOOD** **only** if its `ACTION` (and its result, if `OBSERVATION` is present) **actively attempted to mitigate or correct** an existing problem or error trajectory. Specifically:
+        *   **Successfully fixing** an earlier error.
+        *   **Actively moving the solution back towards correctness** after a misstep.
+        *   **Preventing a further degradation** of the situation.
+    *   An individual step is classified as **BAD** if its `ACTION` (or result) was **neutral, irrelevant, introduced a new error, or failed to correct an existing error**, thereby contributing to or failing to improve the eventual negative outcome.
+
+**FOCUS:** Ignore superficial elements (politeness, formatting). Evaluate **strictly** based on the **technical impact and causal contribution** of the step's `ACTION` (and `OBSERVATION` if present) on the final outcome, relative to the `TASK DESCRIPTION`.
+
+**OUTPUT FORMAT:** Reply IN THE REQUIRED OUTPUT FORMAT and output nothing else.
+
+"""
     def _trim(s: str) -> str:
         if not s: return ""
         return s if len(s) <= max_step_chars else s[:max_step_chars] + "\n…"
 
     user_parts = [
-        f"**OVERALL ADVANTAGE {overall_adv:+.4f} ({polarity})**",
-        "",
         "### TASK DESCRIPTION",
         query,
         "",
@@ -176,9 +204,10 @@ Reply IN THE REQUIRED OUTPUT FORMAT and output nothing else."""
     user_parts += [
         "",
         "---",
+        f"**OVERALL PERFORMANCE SCORE {overall_adv:+.4f} ({polarity})**",
         "Evaluation reminder:",
-        "• Positive advantage → Did this step IMPROVE the answer?",
-        "• Negative advantage → DIAGNOSIS + FIX + EVIDENCE (quoted). If evidence missing → BAD.",
+        "• Positive SCORE → Did this step IMPROVE the answer?",
+        "• Negative SCORE → DIAGNOSIS + FIX + EVIDENCE (quoted). If evidence missing → BAD.",
         "  (Continuing wrong plan / repeating same failure / finalising wrong result → BAD)",
         "",
         "REQUIRED OUTPUT FORMAT:",

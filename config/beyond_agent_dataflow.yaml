@@ -18,7 +18,7 @@ data:
 actor_rollout_ref:
   hybrid_engine: True
   actor:
-    loss_agg_mode: seq-mean-token-mean
+    loss_agg_mode: token-mean
     entropy_mask:
       mode: null
       raw: null
