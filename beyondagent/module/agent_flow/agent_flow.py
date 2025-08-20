@@ -17,10 +17,6 @@ class AgentFlow(BaseAgentFlow):
     def __init__(self,reward_calculator:Optional[RewardCalculator]=None, **kwargs):
         super().__init__(**kwargs)
         self._reward_calculator = reward_calculator
-        if self._reward_calculator is not None:
-            logger.info(f"reward_calculator={self._reward_calculator}")
-        else:
-            logger.info(f"reward_calculator=env")
         self._enable_context_generator=self.config.experience_maker.enable_context_generator
 
         self.instruction_template_ids = self.tokenizer.encode("<|im_start|>user\n")
@@ -125,11 +121,13 @@ class AgentFlow(BaseAgentFlow):
             if trajectory.is_terminated:
                 break
         if self._reward_calculator is not None:
-            score = self._reward_calculator.calculate_reward(trajectory, env, instance_id)
+            grader_res = self._reward_calculator.calculate_reward(trajectory, env, instance_id)
+            trajectory.reward.outcome=grader_res["score"]
+            trajectory.reward.description=grader_res["reason"] or "No reason provided."
         else:
             score = env.evaluate(instance_id, params={"sparse": True})
-        trajectory.reward.outcome = score
-        trajectory.reward.description = "Outcome 1 = success, 0 = failure."
+            trajectory.reward.outcome = score
+            trajectory.reward.description = "Outcome 1 = success, 0 = failure."
 
         if trajectory.steps[-1]["role"] == "user":
             trajectory.steps = trajectory.steps[:-1]

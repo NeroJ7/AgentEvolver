@@ -4,7 +4,7 @@ from typing import Any, Optional, cast
 from loguru import logger
 from beyondagent.client.env_client import EnvClient
 from beyondagent.client.llm_client import DashScopeClient
-from beyondagent.module.agent_flow.reward_calculator import RewardCalculator
+from beyondagent.module.agent_flow.reward_calculator import GraderResult, RewardCalculator
 from beyondagent.schema.task import Task
 from beyondagent.schema.trajectory import Trajectory
 
@@ -24,7 +24,7 @@ Follow these steps sequentially:
 
 #### Step 1: Critical Failure Check
 Immediately score both dimensions 0 if ANY of these occur:
-- Outputs gibberish/unreadable content
+- All content is totally gibberish/unreadable
 - Enters infinite loop or identical step repetition
 - Completely irrelevant to user task
 - Fails to produce any actionable output
@@ -39,11 +39,10 @@ Immediately score both dimensions 0 if ANY of these occur:
 
 #### Step 3: Task Correct Completion (Score 0 or 1)
 Score 1 ONLY if ALL conditions are met:
-- Every step is logically valid and necessary, or is recovered fastly in subsequent steps
-- Zero hallucinated information
-- Final output fully resolves user's request
-- All intermediate steps are correct
-Score 0 if ANY failure occurs
+- Step is logically valid and necessary. (Error is allowed in intermediate steps)
+- Zero hallucinated information. (For example, fabricated information, misinterpreted fields are hallucinated.)
+- Final output resolves user's request, or user's request is unrealistic and best effort is done (Check this by your own knowledge). 
+Score 0 if ANY condition fails
 
 ### Mandatory Constraints
 - Never combine scores or calculate totals
@@ -105,8 +104,8 @@ class LlmAsJudgeBinaryRewardCalculator(RewardCalculator):
     RewardCalculator that uses LLM as judge.
     """
     # 定义类变量，跨实例共享
-    _running_judge_mean_fast = 0.5  # 初始化为默认值
-    _running_judge_mean_slow = 0.5  # 初始化为默认值
+    _running_judge_mean_fast = 0.3  # 初始化为默认值
+    _running_judge_mean_slow = 0.3  # 初始化为默认值
     
     _alpha_fast=0.9
     _alpha_slow=0.95
@@ -115,7 +114,7 @@ class LlmAsJudgeBinaryRewardCalculator(RewardCalculator):
     def __init__(self, task: Task, model_name='qwq-plus', use_mean_constraint=True):
         super().__init__(task)
 
-        self._client = DashScopeClient(model_name=model_name)
+        self._client = DashScopeClient(model_name=model_name,temperature=1.0)
         self._use_mean_constraint = use_mean_constraint
 
     @classmethod
@@ -172,10 +171,13 @@ class LlmAsJudgeBinaryRewardCalculator(RewardCalculator):
         )
         return messages
 
-    
-    def calculate_reward(self, trajectory: Trajectory, env: EnvClient, instance_id: str) -> float:
-        x = cast(float, self._calculate_reward(trajectory, env, eject_llm_output=False))
-        return x
+    def calculate_reward(self, trajectory: Trajectory, env: EnvClient, instance_id: str) -> GraderResult:
+        x,res = cast(tuple[float,str], self._calculate_reward(trajectory, env, eject_llm_output=True))
+        x=min(0.8,max(0.2,x))
+        return {
+            "score": x,
+            "reason": res
+        }
         
 
     def _calculate_reward(self, trajectory: Trajectory, env: EnvClient, *, eject_llm_output: bool = False):

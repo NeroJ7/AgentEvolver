@@ -1,6 +1,7 @@
 import json
 from typing import Optional, Sequence, Tuple
 
+from beyondagent.module.task_manager.user_profiles import UserProfile
 from beyondagent.schema.task import Task, TaskObjective
 from beyondagent.schema.trajectory import Trajectory
 
@@ -115,6 +116,7 @@ def _get_action_observation_pair(traj: Trajectory) -> list[tuple[str, str]]:
 def get_task_summarize_prompt(
     trajectories: Sequence[Trajectory],
     old_objectives: Sequence[TaskObjective],
+    profile: UserProfile | None,
 ) -> tuple[str, str]:
     """获取任务摘要 prompt"""
     x = ""
@@ -149,6 +151,10 @@ You have already explored the following objectives:
 {objectives}
 
 Please avoid repeating these objectives.
+
+# Task Requirements
+
+{profile.get_task_preference_instruction() if profile is not None else "Please follow the instructions to generate tasks."}
 
 # Now Start
 

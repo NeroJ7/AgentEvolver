@@ -4,7 +4,7 @@ from typing import Any, Optional, cast
 from loguru import logger
 from beyondagent.client.env_client import EnvClient
 from beyondagent.client.llm_client import DashScopeClient
-from beyondagent.module.agent_flow.reward_calculator import RewardCalculator
+from beyondagent.module.agent_flow.reward_calculator import GraderResult, RewardCalculator
 from beyondagent.schema.task import Task
 from beyondagent.schema.trajectory import Trajectory
 
@@ -24,7 +24,7 @@ Follow these steps sequentially:
 
 #### Step 1: Critical Failure Check
 Immediately score both dimensions 0 if ANY of these occur:
-- Outputs gibberish/unreadable content
+- All content is totally gibberish/unreadable
 - Enters infinite loop or identical step repetition
 - Completely irrelevant to user task
 - Fails to produce any actionable output
@@ -39,11 +39,10 @@ Immediately score both dimensions 0 if ANY of these occur:
 
 #### Step 3: Task Correct Completion (Score 0 or 1)
 Score 1 ONLY if ALL conditions are met:
-- Every step is logically valid and necessary, or is recovered fastly in subsequent steps
-- Zero hallucinated information
-- Final output fully resolves user's request
-- All intermediate steps are correct
-Score 0 if ANY failure occurs
+- Step is logically valid and necessary. (Error is allowed in intermediate steps)
+- Zero hallucinated information. (For example, fabricated information, misinterpreted fields are hallucinated.)
+- Final output resolves user's request, or user's request is unrealistic and best effort is done (Check this by your own knowledge). 
+Score 0 if ANY condition fails
 
 To evaluate the steps, we provide you with a reference solution to compare against. Please note that this solution demonstrates a correct approach and outcome, but it may not be the *only* correct way to solve the task. A different but equally valid solution should also be considered successful.
 
@@ -56,7 +55,7 @@ To evaluate the steps, we provide you with a reference solution to compare again
 
 ### Output
 **Strictly follow this sequence:**
-1. Perform Step 1 → Step 2 → Step 3 evaluations in order
+1. Perform Step 1, Step 2, Step 3 evaluations in order
 2. Generate analysis covering all evaluation steps
 3. Finaly output the evaluation result with the following FORMAT:
 Reason: [Reason for score]
@@ -72,6 +71,9 @@ Correct Completion: [0/1]
 
 ** Reminder **:
 Perform evaluation steps sequentially before generating output.
+"""
+
+USER_PROMPT_WITH_MEAN_CONSTRAINT=USER_PROMPT+"""
 Over the past period of time, the average score you gave to some samples was {running_mean:.4f}.
 Please note that the average score must be maintained around {mean_score:.4f} (+-0.2), or you will be penalized.
 """
@@ -104,17 +106,18 @@ class LlmAsJudgeBinaryRewardCalculatorWithGT(RewardCalculator):
     RewardCalculator that uses LLM as judge.
     """
     # 定义类变量，跨实例共享
-    _running_judge_mean_fast = 0.5  # 初始化为默认值
-    _running_judge_mean_slow = 0.5  # 初始化为默认值
+    _running_judge_mean_fast = 0.3  # 初始化为默认值
+    _running_judge_mean_slow = 0.3  # 初始化为默认值
     
     _alpha_fast=0.9
-    _alpha_slow=0.99
+    _alpha_slow=0.95
     _update_lock = threading.Lock()  # 锁也需要作为类变量共享
 
-    def __init__(self, task: Task, model_name='qwq-plus'):
+    def __init__(self, task: Task, model_name='qwq-plus', use_mean_constraint=True):
         super().__init__(task)
 
         self._client = DashScopeClient(model_name=model_name)
+        self._use_mean_constraint = use_mean_constraint
 
     @classmethod
     def update_running_mean(cls, new_score: float):
@@ -151,23 +154,35 @@ class LlmAsJudgeBinaryRewardCalculatorWithGT(RewardCalculator):
         
         # TODO 至少现在我们的合成任务 gt 一定不是空的
         assert self.task.ground_truth is not None, "ground truth must not be None for synthetic task"
-        messages.append({
-            "role": "user",
-            "content": USER_PROMPT.format(
+        if self._use_mean_constraint:
+            content=USER_PROMPT_WITH_MEAN_CONSTRAINT.format(
                 task=task_query, 
                 trajs=steps_to_msg(trajectory.steps[2:]),
                 running_mean=self.get_running_mean(),
                 mean_score=self.get_stable_mean(),
                 reference_trajs=self.task.ground_truth or "[No solution provided, please judge the task by yourself]"
-                )
+            )
+        else:
+            content=USER_PROMPT.format(
+                task=task_query, 
+                trajs=steps_to_msg(trajectory.steps[2:]),
+                reference_trajs=self.task.ground_truth or "[No solution provided, please judge the task by yourself]"
+            )
+        messages.append(
+            {
+                "role": "user",
+                "content": content
             }
         )
         return messages
 
-    
-    def calculate_reward(self, trajectory: Trajectory, env: EnvClient, instance_id: str) -> float:
-        x = cast(float, self._calculate_reward(trajectory, env, eject_llm_output=False))
-        return x
+    def calculate_reward(self, trajectory: Trajectory, env: EnvClient, instance_id: str) -> GraderResult:
+        x,res = cast(tuple[float,str], self._calculate_reward(trajectory, env, eject_llm_output=True))
+        x=min(0.8,max(0.2,x))
+        return {
+            "score": x,
+            "reason": res
+        }
         
 
     def _calculate_reward(self, trajectory: Trajectory, env: EnvClient, *, eject_llm_output: bool = False):
@@ -212,3 +227,8 @@ class LlmAsJudgeBinaryRewardCalculatorWithGT(RewardCalculator):
             return score
         else:
             return score, response
+
+@grader_manager.reg("llm-binary-gt-no_constraint")
+class LlmAsJudgeBinaryRewardCalculatorWithGTNoConstraint(LlmAsJudgeBinaryRewardCalculatorWithGT):
+    def __init__(self, task: Task, model_name='qwq-plus'):
+        super().__init__(task, model_name, use_mean_constraint=False)

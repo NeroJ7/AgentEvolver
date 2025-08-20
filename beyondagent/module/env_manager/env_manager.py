@@ -22,7 +22,7 @@ from beyondagent.module.task_manager.rewards import grader_manager
 from beyondagent.schema.task import Task
 from beyondagent.schema.trajectory import Trajectory, Sample
 # do not delete this line
-from beyondagent.module.task_manager.rewards import LlmAsJudgeRewardCalculator,LlmAsJudgeRewardCalculatorWithGT,LlmAsJudgeBinaryRewardCalculator,LlmAsJudgeBinaryRewardCalculatorWithGT,EnvGrader
+from beyondagent.module.task_manager.rewards import LlmAsJudgeRewardCalculator,LlmAsJudgeRewardCalculatorWithGT,LlmAsJudgeBinaryRewardCalculator,LlmAsJudgeBinaryRewardCalculatorWithGT,EnvGrader, AvgBinaryGTJudge, AvgLlmJudge
 
 
 class ParallelEnvManager(object):

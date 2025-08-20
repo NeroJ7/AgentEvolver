@@ -99,6 +99,7 @@ from .judge_with_gt import LlmAsJudgeRewardCalculatorWithGT
 from .reward import LlmAsJudgeRewardCalculator
 from .binary_judge import LlmAsJudgeBinaryRewardCalculator
 from .binary_judge_gt import LlmAsJudgeBinaryRewardCalculatorWithGT
+from .avg_judge import AvgBinaryGTJudge,AvgLlmJudge
 from .env_grader import EnvGrader
 
 __all__=[
@@ -106,6 +107,8 @@ __all__=[
     "LlmAsJudgeRewardCalculator",
     "LlmAsJudgeBinaryRewardCalculator",
     "LlmAsJudgeBinaryRewardCalculatorWithGT",
+    "AvgBinaryGTJudge",
+    "AvgLlmJudge",
     "EnvGrader",
     "grader_manager"
 ]

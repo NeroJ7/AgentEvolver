@@ -16,8 +16,10 @@ from beyondagent.module.task_manager.strategies.common.prompts.prompt_summarize 
     parse_tasks_from_response,
 )
 from beyondagent.module.task_manager.strategies import TaskExploreStrategy
+from beyondagent.module.task_manager.prelude_profiles import bfcl
 from beyondagent.schema.task import Task, TaskObjective
 from beyondagent.schema.trajectory import Trajectory
+
 
 
 class LlmRandomSamplingExploreStrategyProps(TypedDict):
@@ -70,7 +72,7 @@ class LlmRandomSamplingExploreStrategy(TaskExploreStrategy):
         traj = env_worker.execute(
             data_id=data_id,
             rollout_id=rollout_id,
-            system_prompt=get_agent_interaction_system_prompt(None),
+            system_prompt=get_agent_interaction_system_prompt(bfcl.user_profile), # FIXME debug profile
             agent_flow=agent_flow,
         )
 
@@ -80,7 +82,7 @@ class LlmRandomSamplingExploreStrategy(TaskExploreStrategy):
         llm_fn = self._get_llm_chat_fn(self.llm_client_summarize)
         old_objectives = self._old_retrival.retrieve_objectives(task)
         system_prompt, user_prompt = get_task_summarize_prompt(
-            [trajectory], old_objectives
+            [trajectory], old_objectives, bfcl.user_profile # FIXME debug profile
         )
         messages = [
             {"role": "system", "content": system_prompt},
@@ -88,7 +90,6 @@ class LlmRandomSamplingExploreStrategy(TaskExploreStrategy):
         ]
         llm_output = llm_fn(messages=messages)["content"]
         
-        # FIXME debug
         _temp_path=f"./debug/summarize_trajs"
         os.makedirs(_temp_path, exist_ok=True)
         with open(f"{_temp_path}/{uuid.uuid4().hex[:8]}.json", "w") as f:

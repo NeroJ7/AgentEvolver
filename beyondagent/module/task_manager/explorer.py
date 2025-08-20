@@ -67,7 +67,7 @@ class EnvWorkerWithPrompt(object):
             # replace the original query
             # step[-1]["content"] = f"Now do your exploration!"
             # FIXME
-            step[-1]["content"] = f"User may ask question like {state_message[-1]['content']}. You may explore related information, but do not simply try to answer the question. Now do your exploration!"
+            step[-1]["content"] = f"User may ask question like *\"{state_message[-1]['content']}\"*. You may explore related information, but **do not** answer the question. Now do your exploration!"
             
             # Example of state_message after rearrangement
             # [

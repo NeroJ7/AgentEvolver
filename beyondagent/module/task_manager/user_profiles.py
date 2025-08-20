@@ -30,7 +30,7 @@ class EnvEntity:
 
 class TaskPreference:
     """Describe the characteristics of the task to be generated."""
-    def __init__(self, num_entities: int, num_opts: int, relation_difficulty: float):
+    def __init__(self, num_entities: int, num_opts: int, relation_difficulty: int):
         self._num_entities = num_entities
         self._num_opts = num_opts
         self._relation_difficulty = relation_difficulty
@@ -108,6 +108,16 @@ class UserProfile:
             inst_parts.append("")  # blank line for readability
 
         inst_parts.append("### Task Preferences")
+        inst_parts.append(f"The task should involve the following characteristics:")
+        inst_parts.append(f"- **Average number of entities involved**: {self._task_preference.num_entities}")
+        inst_parts.append(f"- **Average number of operations involved**: {self._task_preference.num_opts}")
+        inst_parts.append(f"- **Relation difficulty**: {self._task_preference.relation_difficulty}")
+
+        return "\n".join(inst_parts)
+    
+    def get_task_preference_instruction(self) -> str:
+        inst_parts = []
+        inst_parts.append(f"The task should involve the following characteristics:")
         inst_parts.append(f"- **Average number of entities involved**: {self._task_preference.num_entities}")
         inst_parts.append(f"- **Average number of operations involved**: {self._task_preference.num_opts}")
         inst_parts.append(f"- **Relation difficulty**: {self._task_preference.relation_difficulty}")

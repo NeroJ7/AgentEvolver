@@ -1,7 +1,7 @@
 from typing import Optional, cast
 from beyondagent.client.env_client import EnvClient
 from beyondagent.client.llm_client import DashScopeClient
-from beyondagent.module.agent_flow.reward_calculator import RewardCalculator
+from beyondagent.module.agent_flow.reward_calculator import GraderResult, RewardCalculator
 from beyondagent.schema.task import Task
 from beyondagent.schema.trajectory import Trajectory
 
@@ -94,9 +94,12 @@ class LlmAsJudgeRewardCalculatorWithGT(RewardCalculator):
         return messages
     
     
-    def calculate_reward(self, trajectory: Trajectory, env: EnvClient, instance_id: str) -> float:
-        x=cast(float,self._calculate_reward(trajectory,env,eject_llm_output=False))
-        return x
+    def calculate_reward(self, trajectory: Trajectory, env: EnvClient, instance_id: str) -> GraderResult:
+        x,reason=cast(tuple[float,str],self._calculate_reward(trajectory,env,eject_llm_output=True))
+        return {
+            "score": x,
+            "reason": reason
+        }
         
 
     def _calculate_reward(self, trajectory: Trajectory, env:EnvClient, *, eject_llm_output:bool=False):

@@ -1,7 +1,7 @@
 from typing import cast
 from beyondagent.client.env_client import EnvClient
 from beyondagent.client.llm_client import DashScopeClient
-from beyondagent.module.agent_flow.reward_calculator import RewardCalculator
+from beyondagent.module.agent_flow.reward_calculator import GraderResult, RewardCalculator
 from beyondagent.schema.task import Task
 from beyondagent.schema.trajectory import Trajectory
 
@@ -13,6 +13,9 @@ class EnvGrader(RewardCalculator):
         super().__init__(task)
         pass
     
-    def calculate_reward(self, trajectory: Trajectory, env: EnvClient, instance_id: str) -> float:
+    def calculate_reward(self, trajectory: Trajectory, env: EnvClient, instance_id: str) -> GraderResult:
         score = env.evaluate(instance_id, params={"sparse": True})
-        return score
+        return {
+            "score": score,
+            "reason": "Env grader gives no reason."
+        }
