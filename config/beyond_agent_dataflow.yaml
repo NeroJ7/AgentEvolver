@@ -110,7 +110,7 @@ semantic_advantage:
   model: "qwen-max"              # 语义评估使用的模型
   api_max_retries: 200             # API调用最大重试次数，默认200次
   adv_norm:
-    enable: true         # 是否做adv归一化
+    enable: false         # 是否做adv归一化
     level: "batch"       # "batch" 或 "group"
     group_size: null     # group模式下可覆盖默认repeat大小
     norm_style: "nostd"
@@ -121,6 +121,7 @@ semantic_advantage:
     do_batch_norm: true
     equal_trajectory_weight: true
     fix_base: 0.2
-    alpha: 1.0
+    alpha: 0.1
     orm_distribution: last_step
     enable_length_normalization: false   # 新增参数，控制是否进行长度正则化
+    prm_epoch: 100
