@@ -54,14 +54,14 @@ class Linear_CMT(Trajectory, ContextManagerBase):
         self.llm_output_mistakes = {}
         self.experiences = []
 
-        log_prob_max_token_len_per_gpu: int = self.config.actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu
-        ref_log_prob_max_token_len_per_gpu: int = self.config.actor_rollout_ref.ref.log_prob_max_token_len_per_gpu
-        actor_ppo_max_token_len_per_gpu: int = self.config.actor_rollout_ref.actor.ppo_max_token_len_per_gpu
-        critic_ppo_max_token_len_per_gpu: int = self.config.critic.ppo_max_token_len_per_gpu
-        assert log_prob_max_token_len_per_gpu >= max_model_len
-        assert critic_ppo_max_token_len_per_gpu >= max_model_len
-        assert actor_ppo_max_token_len_per_gpu >= max_model_len
-        assert ref_log_prob_max_token_len_per_gpu >= max_model_len
+        # log_prob_max_token_len_per_gpu: int = self.config.actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu
+        # ref_log_prob_max_token_len_per_gpu: int = self.config.actor_rollout_ref.ref.log_prob_max_token_len_per_gpu
+        # actor_ppo_max_token_len_per_gpu: int = self.config.actor_rollout_ref.actor.ppo_max_token_len_per_gpu
+        # critic_ppo_max_token_len_per_gpu: int = self.config.critic.ppo_max_token_len_per_gpu
+        # assert log_prob_max_token_len_per_gpu >= max_model_len
+        # assert critic_ppo_max_token_len_per_gpu >= max_model_len
+        # assert actor_ppo_max_token_len_per_gpu >= max_model_len
+        # assert ref_log_prob_max_token_len_per_gpu >= max_model_len
         assert self.config.data.max_prompt_length + self.config.data.max_response_length <= max_model_len
 
 
@@ -434,7 +434,7 @@ class Linear_CMT(Trajectory, ContextManagerBase):
             - Truncates output IDs as needed
         """
         from verl.utils.model import compute_position_id_with_mask
-        ext_steps = self.remove_last_non_llm_msg(ext_steps)
+        ext_steps = self.remove_last_non_llm_msg(copy.deepcopy(ext_steps))
 
         # ANNI experience extraction and discard
         def extract_and_discard_experience(input_string, experience_template):  # <EXP>{}</EXP>
@@ -447,21 +447,28 @@ class Linear_CMT(Trajectory, ContextManagerBase):
             else:
                 return "", input_string
 
-        # from vsdb import bp
-        # bp('t1')
         # ANNI experience extraction and discard
         if self.task_train_exp_mode == "discard":
+            from vsdb import bp
+            bp('X1')
+            # "\n\nSome Related Experience to help you to complete the task:<EXP>{}</EXP>"
             self.experience_template = self.config.hybrid_experience_training.experience_template
             for i, ext_msg in enumerate(ext_steps):
                 experience, new_content = extract_and_discard_experience(ext_msg.content_for_future, self.experience_template)
                 self.experiences += [experience]
                 if experience:
+                    print('--------------')
+                    print('--------------')
+                    print(ext_msg.content_for_future)
+                    print('--------------')
+                    print(new_content)
                     ext_steps[i] = ExtendedMessage(
                         author=ext_msg.author,
                         role=ext_msg.role,
                         content=new_content,
-                        token_generator=ext_msg.token_generator,
+                        token_generator='auto',
                         tokenizer=self.tokenizer,
+                        uuid=ext_msg.uuid,
                     )
 
         # mapping

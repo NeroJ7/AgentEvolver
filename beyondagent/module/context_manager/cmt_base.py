@@ -51,6 +51,7 @@ class ExtendedMessage:
             tokenizer=None,
             token_generator="manual",
             build_from_uuid="",
+            uuid=None,
         ):
         self.author = author
         self.role = role
@@ -62,7 +63,10 @@ class ExtendedMessage:
         self._content_for_future = ""
         self._info = ""
         self.clip = clip
-        self.uuid = uuid.uuid4().hex
+        if uuid is None:
+            self.uuid = uuid.uuid4().hex
+        else:
+            self.uuid = uuid
         self.build_from_uuid = build_from_uuid
 
         if not clip:

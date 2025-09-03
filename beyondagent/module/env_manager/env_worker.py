@@ -45,56 +45,54 @@ class EnvWorker(object):
         except Exception as e:
             raise RuntimeError(f"env.create_instance failed! error={e.args}")
 
-        try:
-            init_messages: list[dict] = init_response["state"]
-            state_message: list[dict] = init_response["state"]
-            assert isinstance(state_message, list) and len(state_message)==2, "state_message must be list and its length must be 2"
-            # replace query if new query is in task
-            if self.task.query is not None:
-                assert state_message[-1]["role"] == "user", "the latest message from environment must be user query"
-                state_message[-1]["content"] = self.task.query
-            else:
-                self.task.query = state_message[-1]["content"]
+        init_messages: list[dict] = init_response["state"]
+        state_message: list[dict] = init_response["state"]
+        assert isinstance(state_message, list) and len(state_message)==2, "state_message must be list and its length must be 2"
+        # replace query if new query is in task
+        if self.task.query is not None:
+            assert state_message[-1]["role"] == "user", "the latest message from environment must be user query"
+            state_message[-1]["content"] = self.task.query
+        else:
+            self.task.query = state_message[-1]["content"]
 
-            if self.config.actor_rollout_ref.rollout.context_template == "linear":
-                traj_cmt: Linear_CMT = Linear_CMT(self.config, self.tokenizer)
-            elif self.config.actor_rollout_ref.rollout.context_template == "linear_think":
-                traj_cmt: LinearThinkCMT = LinearThinkCMT(self.config, self.tokenizer)
-            elif self.config.actor_rollout_ref.rollout.context_template == "context_selfclip":
-                traj_cmt: SelfContextClipCMT = SelfContextClipCMT(self.config, self.tokenizer, self.llm_chat_fn)
-            else:
-                raise ValueError(f"Unsupported context template: {self.config.actor_rollout_ref.rollout.context_template}")
+        if self.config.actor_rollout_ref.rollout.context_template == "linear":
+            traj_cmt: Linear_CMT = Linear_CMT(self.config, self.tokenizer)
+        elif self.config.actor_rollout_ref.rollout.context_template == "linear_think":
+            traj_cmt: LinearThinkCMT = LinearThinkCMT(self.config, self.tokenizer)
+        elif self.config.actor_rollout_ref.rollout.context_template == "context_selfclip":
+            traj_cmt: SelfContextClipCMT = SelfContextClipCMT(self.config, self.tokenizer, self.llm_chat_fn)
+        else:
+            raise ValueError(f"Unsupported context template: {self.config.actor_rollout_ref.rollout.context_template}")
 
-            traj_cmt.data_id = data_id
-            traj_cmt.rollout_id = rollout_id
-            traj_cmt.task_id = self.task_id
-            traj_cmt.instance_id = self.instance_id
-            traj_cmt.task_train_exp_mode = self.task.metadata.get("task_train_exp_mode")
-            traj_cmt.metadata["task_train_exp_mode"] = task_train_exp_mode
-            traj_cmt.query = state_message[-1]["content"]
+        traj_cmt.data_id = data_id
+        traj_cmt.rollout_id = rollout_id
+        traj_cmt.task_id = self.task_id
+        traj_cmt.instance_id = self.instance_id
+        traj_cmt.task_train_exp_mode = self.task.metadata.get("task_train_exp_mode")
+        traj_cmt.metadata["task_train_exp_mode"] = task_train_exp_mode
+        traj_cmt.query = state_message[-1]["content"]
 
-            traj_cmt: Trajectory = agent_flow.execute(
-                context_manager=traj_cmt,
-                init_messages=init_messages,
-                env=self.env,
-                instance_id=self.instance_id,
-                tmux=tmux,
-                stop=stop,
-                thread_index=self.thread_index,
-                task_id=self.task_id,
-                data_id=data_id,
-                rollout_id=rollout_id,
-                query=self.task.query,
-                add_exp=add_exp,
-                **kwargs
-            )
+        traj_cmt: Trajectory = agent_flow.execute(
+            context_manager=traj_cmt,
+            init_messages=init_messages,
+            env=self.env,
+            instance_id=self.instance_id,
+            tmux=tmux,
+            stop=stop,
+            thread_index=self.thread_index,
+            task_id=self.task_id,
+            data_id=data_id,
+            rollout_id=rollout_id,
+            query=self.task.query,
+            add_exp=add_exp,
+            **kwargs
+        )
 
-        except Exception as e:
-            logger.exception(f"encounter exception in env_worker.agent_flow~ error={e.args}")
 
         try:
             self.env.release_instance(self.instance_id)
         except Exception as e:
             logger.exception(f"encounter exception in env_worker.release_instance~ error={e.args}")
+            raise e
 
         return traj_cmt

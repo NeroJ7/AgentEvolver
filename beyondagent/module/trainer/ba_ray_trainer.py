@@ -770,7 +770,8 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
         The light-weight advantage computation is done on the driver process.
         """
         from omegaconf import OmegaConf
-
+        from vsdb import bp
+        bp('X2')
         from verl.utils.tracking import Tracking
 
         logger = Tracking(
