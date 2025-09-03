@@ -457,11 +457,11 @@ class Linear_CMT(Trajectory, ContextManagerBase):
                 experience, new_content = extract_and_discard_experience(ext_msg.content_for_future, self.experience_template)
                 self.experiences += [experience]
                 if experience:
-                    print('--------------')
-                    print('--------------')
-                    print(ext_msg.content_for_future)
-                    print('--------------')
-                    print(new_content)
+                    # print('--------------')
+                    # print('--------------')
+                    # print(ext_msg.content_for_future)
+                    # print('--------------')
+                    # print(new_content)
                     ext_steps[i] = ExtendedMessage(
                         author=ext_msg.author,
                         role=ext_msg.role,
