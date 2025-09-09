@@ -176,8 +176,9 @@ class AgentFlow(BaseAgentFlow):
             self.cmt.save_env_output(state, input_msg_ref=step_input_message_arr, add_nothink=add_nothink)  # ⭐ Save the environment output
 
             # 9. 🔚 determine if the episode is terminated
-            self.cmt.is_terminated = env_output["is_terminated"]  # ⭐ Determine if the episode is terminated
-            if self.cmt.is_terminated:
+            self.cmt.is_terminated = env_output["is_terminated"]
+            # agent can terminate the task by sending /terminate_myself
+            if self.cmt.is_terminated or llm_output['content'].find('/terminate_myself')!=-1:
                 break
 
         tmux['step'][thread_index] = -1

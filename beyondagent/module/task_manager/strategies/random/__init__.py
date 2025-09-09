@@ -93,7 +93,9 @@ class LlmRandomSamplingExploreStrategy(TaskExploreStrategy):
         llm_fn = self._get_llm_chat_fn(self.llm_client_summarize)
         old_objectives = self._old_retrival.retrieve_objectives(task)
         # mask information
+        trajectory.steps[1]['content'] = '[MASKED]'
         trajectory.steps[2]['content'] = "[MASKED]"
+        
         system_prompt, user_prompt = get_task_summarize_prompt(
             [trajectory], old_objectives, appworld.user_profile # FIXME debug profile
         )

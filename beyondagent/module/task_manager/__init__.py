@@ -23,6 +23,7 @@ def run_task_manager(config):
         config=config,
         exploration_strategy=config.task_manager.strategy,
         exploration_strategy_args=config.task_manager.strategy_args,
+        user_profile=None,
         llm_client=llm_client, # or use policy model
         old_retrival=NaiveTaskObjectiveRetrieval(),
         mixture_strategy=UnifiedMixtureStrategy(

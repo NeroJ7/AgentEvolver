@@ -5,7 +5,6 @@ from typing import Callable, NotRequired, Optional, Sequence, TypedDict, Unpack
 from loguru import logger
 
 from beyondagent.module.agent_flow.base_agent_flow import BaseAgentFlow
-from beyondagent.module.task_manager.explorer import EnvWorkerWithPrompt
 from beyondagent.module.task_manager.strategies.common.prompts.prompt_explore import get_agent_interaction_system_prompt
 from beyondagent.module.task_manager.strategies.common.prompts.prompt_summarize import (
     get_task_summarize_prompt,
