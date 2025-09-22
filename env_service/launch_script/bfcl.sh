@@ -31,4 +31,4 @@ echo "Current working directory: $(pwd)"
 echo "PYTHONPATH: $PYTHONPATH"
 
 # 运行 Python 命令
-exec python -m envservice.env_service --env bfcl --portal 127.0.0.1 --port 8000
+exec python -m env_service.env_service --env bfcl --portal 127.0.0.1 --port 8000

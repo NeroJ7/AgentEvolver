@@ -21,61 +21,14 @@ def agent_test(task_id=0):
     query = init_response["state"]
     print(f"Created instance {instance_id} with query: {query}")
 
-    # system_msgs = init_response['info']['system_prompt']
-    # messages_list=[
-    #     {"role": "system", "content": system_msgs},
-    # ]
-    messages_list =[]
+    action={'role': 'assistant',
+                            'content': '要判断宁德时代（CATL）的股票今天是否值得购买，我们需要分析该公司的基本面、技术面以及市场情绪等多方面的信息。由于我无法直接访问实时数据和市场动态，我们可以采取以下步骤来帮助你做出决策：\n\n1. 获取宁德时代的最新财务数据，包括但不限于营业收入、净利润、资产负债情况等。\n2. 分析最近的股价走势和技术指标。\n3. 考虑行业趋势和宏观经济环境。\n\n首先，我们可以通过调用相关工具来获取宁德时代的财务数据。请注意，这将提供一个静态的数据点，并不能单独作为投资决策的依据。我们将从中国上市公司的财务数据中获取宁德时代的信息。\n\n```json\n[\n    {\n        "tool_name": "sse_get_data_in_CHN",\n        "tool_args": {\n            "company_name": "宁德时代",\n            "year": "2022"\n        }\n    }\n]\n```\n\n以上调用将会返回宁德时代2022年的财务数据。根据这些数据，我们可以开始初步评估公司的财务状况。但请记住，进行投资之前还需要考虑其他因素，如最新的市场新闻、分析师评级及个人的投资策略等。如果你需要进一步的帮助或更详细的分析，请告诉我。'}
 
 
-    finish = False
-    while not finish:
+    result = client.step(instance_id, action)
+    print(f"Step result: {result}")
 
-        user_msgs = init_response['state']
-        #print('input state is ' + user_msgs)
-        messages_list.extend(user_msgs)
-        print('----')
-        print(messages_list)
-        print('----')
-
-
-        from openai import OpenAI
-
-        sse_client = OpenAI(
-            api_key="",
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-        )
-        model_name = "qwen-max"  # Always use GPT-4o regardless of input model_name
-
-        response = sse_client.chat.completions.create(
-            model=model_name,
-            messages=messages_list,
-            # messages=[
-            #     {"role": "system", "content": system_msgs},
-            #     {"role": "user", "content": user_msgs},
-            # ],
-        )
-        action = {
-            "role": "assistant",
-            "content": response.choices[0].message.content,
-        }
-        print(action)
-        messages_list.append(action)
-        #for debug use to check the action
-
-
-        print('----steping----')
-
-        result = client.step(instance_id, action)
-        print(f"Step result: {result}")
-
-        finish = result['is_terminated']
-
-        init_response=result
-
-    print(result['reward'])
-
-    return result['reward']
+    return 0
 
 
 

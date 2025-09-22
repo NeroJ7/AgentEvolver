@@ -7,7 +7,7 @@ debug = True
 import os
 
 local_path = os.path.dirname(os.path.abspath(__file__))
-config_path = os.path.join(local_path, 'mcp_tool.json')
+config_path = os.path.join(local_path, 'mcp_econ_tool.json')
 with open(config_path, 'r') as config_file:
     server_configs = json.load(config_file)
 
@@ -99,11 +99,21 @@ class AsyncLoopThread:
 @Registry.register("openworld")
 class OpenworldEnv(BaseEnv):
     def __init__(self, task_id: str = None, instance_id: str = None,
-                 tool_info: list = None, server_configs: list = None, params={}):
+                 params={}):
         self.task_id = task_id
         self.instance_id = instance_id
-        self.tool_info = tool_info
-        self.server_configs = server_configs if server_configs is not None else local_server_configs
+        self.tool_info = None
+
+
+        if 'server_configs_path' in params and os.path.exists(params['server_configs_path']):
+            with open(params['server_configs_path'], 'r') as config_file:
+                server_configs = json.load(config_file)
+
+                self.server_configs =server_configs
+        else:
+            self.server_configs =  local_server_configs
+
+
         self.server_handler_list = {}
         self.tool_to_server = {}
 
@@ -128,8 +138,13 @@ class OpenworldEnv(BaseEnv):
         ----------
         """
 
-        if self.tool_info is None and self.server_configs:
-            self.tool_info = self.async_thread.run_async(self._load_tool_info, self.server_configs)
+        # 同步阻塞初始化 tool_info
+        if self.server_configs:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self.tool_info = loop.run_until_complete(self._load_tool_info(self.server_configs))
+            loop.close()
+
 
         for server_name in self.tool_info:
             for tool in self.tool_info[server_name]:
@@ -141,6 +156,7 @@ class OpenworldEnv(BaseEnv):
                 tool inputSchema：{str(tool.inputSchema)}
                 ###
                 """
+
 
     async def _load_tool_info(self, server_configs):
         all_tools = {}
@@ -180,7 +196,13 @@ class OpenworldEnv(BaseEnv):
     def get_init_state(self, params={}):
         query = '帮我查询一下宁德时代的股票，在今天是否值得购买' \
             if self.instance_id == '0' else '我想知道匠心家具最近为什么涨这么多，请帮我分析一下'
-        self.server_handler_list = self.async_thread.run_async(self._init_handlers)
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        self.server_handler_list = loop.run_until_complete(self._init_handlers())
+        loop.close()
+
+
         return {
             "state": [{"role": "system", "content": self.system_prompt},
                       {"role": "user", "content": query}],
@@ -263,4 +285,16 @@ class OpenworldEnv(BaseEnv):
 
 
 
+
+def main(debug=False):
+    env = OpenworldEnv( instance_id='0')
+
+    init_response = env.get_init_state()
+
+    print(init_response)
+    return init_response
+
+if __name__ == '__main__':
+    a=main(debug=False)
+    print(a)
 

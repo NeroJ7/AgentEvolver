@@ -29,6 +29,8 @@ class MCPSessionHandler:
 
     async def initialize(self) -> None:
         """Initialize the server connection."""
+
+
         command = (
             shutil.which("npx")
             if self.config.get("command") == "npx"
@@ -86,6 +88,8 @@ class MCPSessionHandler:
             logging.error(f"Error initializing server {self.name}: {e}")
             await self.cleanup()
             raise
+
+
 
     async def list_tools(self) -> list[Any]:
         """List available tools from the server.

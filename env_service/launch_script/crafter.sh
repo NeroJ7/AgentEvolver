@@ -20,4 +20,4 @@ echo "Current working directory: $(pwd)"
 echo "PYTHONPATH: $PYTHONPATH"
 
 # 运行 Python 命令
-exec python -m envservice.env_service --env crafters --portal 127.0.0.1 --port 8080 --ray_path '/mnt/data/eric.czq/ray_store'
+exec python -m env_service.env_service --env crafters --portal 127.0.0.1 --port 8080 --ray_path '/mnt/data/eric.czq/ray_store'
