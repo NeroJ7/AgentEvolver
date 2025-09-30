@@ -589,12 +589,15 @@ class ParallelEnvManager(object):
         response_ids =            pad_sequence(response_ids, batch_first=True, padding_value=self.pad_token_id)
         response_attention_mask = pad_sequence(response_attention_mask, batch_first=True, padding_value=0)
         response_loss_mask =      pad_sequence(response_loss_mask, batch_first=True, padding_value=0)
-        response_exp_mask_list =  pad_sequence(response_exp_mask_list, batch_first=True, padding_value=0, padding_side="left")
+        # response_exp_mask_list =  pad_sequence(response_exp_mask_list, batch_first=True, padding_value=0, padding_side="left")
+        response_exp_mask_list  = pad_sequence(response_exp_mask_list,  batch_first=True, padding_value=0)        # shuchang debug: 去掉 padding_side="left"
+
 
         response_ids =            pad_sequence_to_length(response_ids, max_response_length_this_batch, self.pad_token_id)  # ⭐ Pad response IDs to the maximum response length
         response_attention_mask = pad_sequence_to_length(response_attention_mask, max_response_length_this_batch, 0)  # ⭐ Pad response attention mask to the maximum response length
         response_loss_mask =      pad_sequence_to_length(response_loss_mask, max_response_length_this_batch, 0)  # ⭐ Pad response loss mask to the maximum response length
-        response_exp_mask_list =  pad_sequence_to_length(response_exp_mask_list, max_prompt_length_this_batch, 0, left_pad=True)  # ⭐ Pad response experience mask list to the maximum prompt length
+        # response_exp_mask_list =  pad_sequence_to_length(response_exp_mask_list, max_prompt_length_this_batch, 0, left_pad=True)  # ⭐ Pad response experience mask list to the maximum prompt length
+        response_exp_mask_list =  pad_sequence_to_length(response_exp_mask_list, max_response_length_this_batch, 0) # shuchang debug: 应该padding到 max_response_length_this_batch，而不是之前的max_prompt_length_this_batch
 
         delta_position_id = torch.arange(1, response_ids.size(1) + 1, device=response_ids.device).unsqueeze(0).repeat(len(samples), 1)
         response_position_ids = prompt_position_ids[:, -1:] + delta_position_id  # ⭐ Calculate the position IDs for the response
