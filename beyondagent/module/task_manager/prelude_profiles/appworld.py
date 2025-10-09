@@ -1,7 +1,6 @@
 import copy
 from beyondagent.module.task_manager.env_profiles import EnvEntity, EnvEntityOpt, TaskPreference, EnvProfile
 
-
 venmo = EnvEntity(
     name="Venmo",
     description="A mobile payment service to send, request, and manage money transactions.",
@@ -109,6 +108,7 @@ phone = EnvEntity(
     ]
 )
 
+# Define the Todoist environment entity
 todoist = EnvEntity(
     name="Todoist",
     description="A task management and to-do list application.",
@@ -123,6 +123,7 @@ todoist = EnvEntity(
     ]
 )
 
+# Define the Splitwise environment entity
 splitwise = EnvEntity(
     name="Splitwise",
     description="An app for tracking shared expenses and balances.",
@@ -136,6 +137,7 @@ splitwise = EnvEntity(
     ]
 )
 
+# Define the File System environment entity
 filesystem = EnvEntity(
     name="File System",
     description="A local file storage system for managing files and directories.",
@@ -165,6 +167,7 @@ env_profile = EnvProfile(
     )
 )
 
+# ⭐ Register the environment entities with the user profile
 env_profile.reg_entities([venmo, amazon, spotify, gmail, simplenote, phone, todoist, splitwise, filesystem])
 
 user_profile_wo_rubric=copy.deepcopy(env_profile)
