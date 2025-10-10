@@ -96,20 +96,49 @@ By default, Task Manager provides:
 * *RandomWalk Strategy* for task derivation,
 * *DeduplicationFilter*, *FeasibilityFilter*, and *UnifiedMixtureStrategy* for task curation.
 
-These can be configured in the YAML configuration file:
+These can be configured in the YAML configuration file. After configuring strategies, the whole configuration file looks like this:
 
 ```yaml
 task_manager:
+  # tasks will be explored once if set. use it if you want to keep the same explorations.
+  train_data_path: tasks_explored.train.json
+  val_data_path: tasks_explored.val.json
+  # model used to explore the environment
+  llm_client: qwen-plus
+  # repetation of exploration
+  n: 0
+  # env profiles used in exploration
+  env_profile: cookbook/env_profiles/appworld.json
+  # batch size of dynamic synthetic data
+  bs: ${data.train_batch_size}
+  # number of threads for exploration
+  num_explore_threads: ${thread_pool.max_workers}
+
+  # mixture strategy
   mixture:
-    # Whether to use original tasks provided by the environment
+    # whether to use original tasks provided by the environment
     use_original_tasks: True
-    # Ratio of original tasks and synthetic tasks
+    # ratio of original tasks and synthetic tasks
     original_data_ratio: 1.0
     synthetic_data_ratio: 0.0
-    # Whether to shuffle tasks *after* mixture
+    # whether to shuffle tasks *after* mixture
     shuffle: True
 
-# Mixture strategy is only active in integrated mode.
+  # the grader used to evaluate tasks
+  grader:
+    # grader used to evaluate tasks: env, llm
+    original_grader: env
+    synthetic_grader: llm
+
+  # strategy used to explore the environment
+  strategy: random
+  strategy_args:
+    max_explore_step: 30
+    max_llm_retries: 6
+    env_url: ${env_service.env_url}
+    exploration_llm_temperature: 1.0
+    exploration_llm_top_p: 1.0
+    exploration_llm_top_k: 100
 ```
 
 ### 4. Start Task Synthesis
@@ -153,6 +182,7 @@ task_manager:
     `train_data_path` and `val_data_path` set, tasks will be explored once and saved to the specified path. If no path is set for integrated mode, Task Manager will generate un tasks dynamically during training. All synthetic tasks will be discarded after training.
 
 Inspect the generated data to ensure it aligns with your training requirements.
+
 
 ## Workflow of Task Manager
 
@@ -434,8 +464,3 @@ task_manager:
 ## Extend Task Manager
 
 Task Manager is designed as a **modular and extensible framework**, adaptable to different training scenarios. To extend Task Manager, users can implement and replace the components used in three stages in the pipeline, including **Strategy**, **Filter**, **Mixture Strategy**, and **Judge**.
-
-
-```text
-# TODO: Refactoring in progress
-```
