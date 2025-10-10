@@ -120,9 +120,6 @@ class ServiceRequest(BaseModel):
     messages: Dict[str, Any] = {}
     params: Dict[str, Any] = {}
 
-@dataclass
-class EnvActorProps:
-    enable_agent_terminate: bool = False
 
 class EnvService:
     """
@@ -145,7 +142,6 @@ class EnvService:
         if not ray.is_initialized():
             ray.init()
         self.env_actors = {}
-        self.env_actor_props = {}
         self.remote_env = {}
         self.last_access_time = {}
         self.cleanup_interval = 300
@@ -298,7 +294,6 @@ class EnvService:
         self,
         env_type: str,
         task_id: str,
-        enable_agent_terminate:bool = False,
         instance_id: Optional[str] = None,
         params: Dict = None,
     ) -> str:
@@ -337,11 +332,7 @@ class EnvService:
                 env_actor = env_remote_cls.remote(task_id, instance_id, params)
 
             self.env_actors[instance_id] = env_actor
-            self.env_actor_props[instance_id] = EnvActorProps(enable_agent_terminate)
             init_state = await env_actor.get_init_state.remote(params)
-            assert 'state' in init_state and init_state['state'][0]['role'] == 'system'
-            if enable_agent_terminate:
-                init_state['state'][0]['content'] +="\n\n You can terminate the conversation by saying '/terminate'."
 
             self.update_access_time(instance_id)
 
@@ -381,13 +372,10 @@ class EnvService:
         try:
             if instance_id not in self.env_actors:
                 raise ValueError(f"Instance {instance_id} not found!")
-            assert 'content' in action
             data = await self.env_actors[instance_id].step.remote(
                 action,
                 params,
             )
-            if self.env_actor_props[instance_id].enable_agent_terminate and '/terminate' in action['content']:
-                data['is_terminated'] = True
             
             return data
 
@@ -447,7 +435,6 @@ class EnvService:
         await env_actor.close.remote()
         ray.kill(self.env_actors[instance_id])
         del self.env_actors[instance_id]
-        del self.env_actor_props[instance_id]
         self.last_access_time.pop(instance_id, None)
         return True
 

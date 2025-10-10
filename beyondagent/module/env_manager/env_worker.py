@@ -3,7 +3,7 @@ import uuid
 
 from omegaconf import DictConfig
 from loguru import logger
-from beyondagent.client.env_client import EnvClient
+from beyondagent.client.env_client import EnvClient, EnvClientWrapper
 from beyondagent.module.agent_flow.base_agent_flow import BaseAgentFlow
 from beyondagent.schema.task import Task
 from beyondagent.schema.trajectory import Trajectory
@@ -16,7 +16,7 @@ from typing import List, Dict, Any, Optional
 
 class EnvWorker(object):
 
-    def __init__(self, task: Task, enable_agent_terminate: bool = False, instance_id: str = None, thread_index: int = None, tokenizer=None,
+    def __init__(self, task: Task, is_open_query: bool = False, instance_id: str = None, thread_index: int = None, tokenizer=None,
                  config: DictConfig = None):
         """
         Initializes the EnvWorker with the provided task, configuration, and other optional parameters.
@@ -29,9 +29,8 @@ class EnvWorker(object):
             config (DictConfig, optional): The configuration settings for the environment and other components.
         """
         self.config = config  # Store the provided configuration
-        self.env = EnvClient(base_url=config.env_service.env_url)  # Initialize the environment client
+        self.env = EnvClientWrapper(base_url=config.env_service.env_url,is_open_query=is_open_query)  # Initialize the environment client
         self.task = task  # Store the task object
-        self.enable_agent_terminate: bool = enable_agent_terminate # Set the agent termination flag
         self.env_type: str = task.env_type  # Set the environment type based on the task
         self.task_id: str = task.task_id  # Set the task ID
         self.instance_id: str = instance_id if instance_id is not None else uuid.uuid4().hex  # Set or generate the instance ID
@@ -60,7 +59,6 @@ class EnvWorker(object):
         try:
             init_response = self.env.create_instance(env_type=self.env_type,
                                                     task_id=self.task_id,
-                                                    enable_agent_terminate=self.enable_agent_terminate,
                                                     instance_id=self.instance_id)
 
             init_messages: list[dict] = init_response["state"]

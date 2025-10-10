@@ -96,7 +96,7 @@ class EnvClient:
         return response["data"]
 
     def create_instance(
-        self, env_type: str, task_id: str, enable_agent_terminate:bool = False, instance_id: str = None, params: Dict = None
+        self, env_type: str, task_id: str, instance_id: str = None, params: Dict = None
     ) -> dict:
         """
         Creates an environment instance by sending a request to the API.
@@ -104,7 +104,6 @@ class EnvClient:
         Args:
             env_type (str): The type of the environment to be created.
             task_id (str): The unique identifier for the task.
-            enable_agent_terminate (bool, optional): Whether to allow self-termination. Defaults to False.
             instance_id (str, optional): The unique identifier for the instance. Defaults to None.
             params (Dict, optional): Additional parameters for the environment creation. Defaults to None.
 
@@ -117,7 +116,6 @@ class EnvClient:
             task_id=task_id,
             instance_id=instance_id,
             params=params,
-            enable_agent_terminate=enable_agent_terminate,
         )
         return response["data"]
 
@@ -172,6 +170,22 @@ class EnvClient:
         """
         response = self._make_request(endpoint="release", instance_id=instance_id)  # ⭐ Send the release request
         return response["success"]
+
+
+class EnvClientWrapper(EnvClient):
+    """This is a wrapper of envclient to patch some env, making them behave normally in open query, e.g. synthetic query.
+    """
+    def __init__(self, base_url: str = "http://localhost:8000", is_open_query: bool = False):
+        super().__init__(base_url)
+        self._is_open_query=is_open_query
+    
+    def step(self, instance_id: str, action: Dict = {}, params: Dict = {}) -> Dict:
+        default_query={'bfcl_single_turn': True}
+        if self._is_open_query:
+            default_query|=params
+        return super().step(instance_id, action, default_query)
+
+
 def main():
     """
     Demonstrates the use of EnvClient by performing a sequence of operations:
