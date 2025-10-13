@@ -1,4 +1,5 @@
 import time
+import json
 from typing import List
 
 from loguru import logger
@@ -29,7 +30,8 @@ class EMClient(HttpClient):
         start_time = time.time()
         self.url = self.base_url + "/retriever"  # ⭐ Set the URL for the request
         json_data = {
-            "query": trajectory.query,
+            # "query": trajectory.query,
+            "query": json.dumps(trajectory.steps, ensure_ascii=False),
             "retrieve_top_k": retrieve_top_k,
             "workspace_id": workspace_id,
             "metadata": kwargs
