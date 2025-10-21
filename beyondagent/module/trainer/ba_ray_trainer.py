@@ -532,15 +532,15 @@ class BeyondAgentRayPPOTrainer(RayPPOTrainer):
             self.val_task_manager.load_tasks_from_dataset(val_seed_dataset,env_type=self.config.env_service.env_type)
         else:
             num_loaded_val_tasks = 0
-            if 'val_on_test' not in os.environ.get('DEBUG_ARG',''):
+            if 'val_on_test' in os.environ.get("DEBUG_ARG",'') or (self.config.data.val_type == 'test_normal' and self.config.env_service.env_type == "appworld"):
+                logger.warning("using test_normal as val dataset")
+                self.val_task_manager.load_tasks_from_environment(env_client,env_type=self.config.env_service.env_type,split="test_normal")
+            else:
                 for split in ['val','dev']:
                     try:
                         num_loaded_val_tasks += self.val_task_manager.load_tasks_from_environment(env_client,env_type=self.config.env_service.env_type,split=split)
                     except:
-                        logger.warning(f"failed to load val dataset from environment, split={split}. this may be normal if your dataset is split into train/dev")    
-            else:
-                logger.warning("using test_normal as val dataset")
-                self.val_task_manager.load_tasks_from_environment(env_client,env_type=self.config.env_service.env_type,split="test_normal")
+                        logger.warning(f"failed to load val dataset from environment, split={split}. this may be *normal* if your dataset is split into train/dev")    
             
             assert num_loaded_val_tasks > 0, "failed to load val/dev dataset from environment"
         
