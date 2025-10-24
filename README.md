@@ -117,7 +117,7 @@ Using AgentEvoler launcher to start environment, log dashboard and training proc
 python launcher.py --conf examples/self-question-attr.yaml --with-appworld --with-logview
 ```
 
-## 🧩 Advantage Usage
+## 🧩 Advanced Usage
 submodule doc list
 
 ## 🌟 Benchmark Performance
