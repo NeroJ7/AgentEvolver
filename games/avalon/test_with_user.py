@@ -17,9 +17,9 @@ from agentscope.formatter import DashScopeChatFormatter
 from agentscope.memory import InMemoryMemory
 from agentscope.tool import Toolkit
 
-from tutorial.example_avalon.agents.thinking_react_agent import ThinkingReActAgent
-from tutorial.example_avalon.game import avalon_game
-from tutorial.example_avalon.engine import AvalonBasicConfig
+from games.avalon.agents.thinking_react_agent import ThinkingReActAgent
+from games.avalon.game import avalon_game
+from games.avalon.engine import AvalonBasicConfig
 
 
 async def main(language: str = "en", use_user_agent: bool = False, user_agent_id: int = 0):

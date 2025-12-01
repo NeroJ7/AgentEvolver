@@ -117,6 +117,35 @@ def _print_user_agent_private_info(agent: AgentBase, role_info: str, role_name: 
         print("=" * 70 + "\n")
 
 
+async def _broadcast_with_display(hub: MsgHub, msg: Msg | list[Msg], label: str = "PUBLIC INFO") -> None:
+    """Broadcast message and display it in terminal with clear label.
+    
+    Args:
+        hub: MsgHub instance for broadcasting.
+        msg: Message(s) to broadcast.
+        label: Label for the broadcast message (default: "PUBLIC INFO").
+    
+    Note: Single Msg from moderator already prints via moderator.reply(),
+          so we only need to handle list of messages here.
+    """
+    # For list of messages, display them (single Msg is already displayed by moderator)
+    if isinstance(msg, list):
+        from games.avalon.utils import extract_text_from_content
+        contents = []
+        for m in msg:
+            if isinstance(m, Msg):
+                content = extract_text_from_content(m.content)
+                contents.append(f"{m.name}: {content}")
+        if contents:
+            print(f"\n[MODERATOR {label}]")
+            print("-" * 70)
+            print("\n".join(contents))
+            print("-" * 70 + "\n")
+    
+    # Broadcast
+    await hub.broadcast(msg)
+
+
 async def assign_roles_to_agents(
     agents: list[AgentBase],
     roles: list[tuple],
@@ -178,14 +207,13 @@ async def _handle_team_selection_phase(
 ) -> None:
     """Handle Team Selection Phase."""
     # Broadcast phase and discussion prompt
-    await all_players_hub.broadcast(
-        await moderator(Prompts.to_all_team_selection_discuss.format(
-            mission_id=mission_id,
-            round_id=round_id,
-            leader_id=leader,
-            team_size=env.get_team_size(),
-        ))
-    )
+    phase_msg = await moderator(Prompts.to_all_team_selection_discuss.format(
+        mission_id=mission_id,
+        round_id=round_id,
+        leader_id=leader,
+        team_size=env.get_team_size(),
+    ))
+    await _broadcast_with_display(all_players_hub, phase_msg, "PUBLIC INFO")
 
     # Discussion: leader speaks first, then others
     leader_agent = agents[leader]
@@ -246,7 +274,7 @@ async def _handle_team_voting_phase(
     
     # Broadcast voting phase
     vote_prompt = await moderator(Prompts.to_all_team_vote.format(team=list(current_team)))
-    await all_players_hub.broadcast(vote_prompt)
+    await _broadcast_with_display(all_players_hub, vote_prompt, "PUBLIC INFO")
 
     # Collect votes
     msgs_vote = await fanout_pipeline(agents, msg=vote_prompt, enable_gather=True)
@@ -263,7 +291,7 @@ async def _handle_team_voting_phase(
         outcome=outcome_text,
         votes_detail=votes_detail,
     ))
-    await all_players_hub.broadcast([result_msg])
+    await _broadcast_with_display(all_players_hub, [result_msg], "PUBLIC INFO")
     
     # Record in game log
     if game_log_dir and game_log["missions"]:
@@ -290,7 +318,7 @@ async def _handle_quest_voting_phase(
     
     # Broadcast voting phase
     vote_prompt = await moderator(Prompts.to_all_quest_vote.format(team=list(current_team)))
-    await all_players_hub.broadcast(vote_prompt)
+    await _broadcast_with_display(all_players_hub, vote_prompt, "PUBLIC INFO")
 
     # Collect votes (private)
     msgs_vote = await fanout_pipeline(team_agents, msg=vote_prompt, enable_gather=True)
@@ -304,7 +332,7 @@ async def _handle_quest_voting_phase(
         team=list(current_team),
         num_fails=outcome[3],
     ))
-    await all_players_hub.broadcast(result_msg)
+    await _broadcast_with_display(all_players_hub, result_msg, "PUBLIC INFO")
     
     # Record in game log
     if game_log_dir and game_log["missions"]:
@@ -328,7 +356,8 @@ async def _handle_assassination_phase(
 ) -> None:
     """Handle Assassination Phase."""
     # Broadcast phase
-    await all_players_hub.broadcast(await moderator(Prompts.to_all_assassination))
+    assassination_msg = await moderator(Prompts.to_all_assassination)
+    await _broadcast_with_display(all_players_hub, assassination_msg, "PUBLIC INFO")
 
     # Assassin chooses target
     assassin_id = env.get_assassin()
@@ -348,7 +377,7 @@ async def _handle_assassination_phase(
         result_msg = await moderator(f"刺客{assassin_name} 选择刺杀{target_name}。{result_text}")
     else:
         result_msg = await moderator(f"Assassin {assassin_name} has chosen to assassinate {target_name}. {result_text}")
-    await all_players_hub.broadcast(result_msg)
+    await _broadcast_with_display(all_players_hub, result_msg, "PUBLIC INFO")
     
     # Record in game log
     if game_log_dir:
@@ -429,7 +458,7 @@ async def avalon_game(
         assassin_count = 1  # Assassin always exists in standard Avalon
         minion_count = config.num_evil - assassin_count
         
-        await greeting_hub.broadcast(await moderator(
+        system_prompt_msg = await moderator(
             Prompts.system_prompt_template.format(
                 num_players=config.num_players,
                 max_player_id=max_player_id,
@@ -440,10 +469,13 @@ async def avalon_game(
                 assassin_count=assassin_count,
                 minion_count=minion_count,
             )
-        ))
-        await greeting_hub.broadcast(await moderator(
+        )
+        await _broadcast_with_display(greeting_hub, system_prompt_msg, "PUBLIC INFO")
+        
+        new_game_msg = await moderator(
             Prompts.to_all_new_game.format(localizer.format_agents_names(agents))
-        ))
+        )
+        await _broadcast_with_display(greeting_hub, new_game_msg, "PUBLIC INFO")
 
     # Assign roles to agents
     await assign_roles_to_agents(agents, roles, Prompts, localizer)
@@ -482,9 +514,10 @@ async def avalon_game(
     
     async with MsgHub(participants=agents) as end_hub:
         result = Prompts.to_all_good_wins if env.good_victory else Prompts.to_all_evil_wins
-        await end_hub.broadcast(await moderator(
+        end_msg = await moderator(
             Prompts.to_all_game_end.format(result=result, true_roles=true_roles_str)
-        ))
+        )
+        await _broadcast_with_display(end_hub, end_msg, "PUBLIC INFO")
 
     logger.info(f"Game finished. Good wins: {env.good_victory}, Quest results: {env.quest_results}")
     

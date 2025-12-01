@@ -5,7 +5,7 @@ from typing import Any, Callable, Optional
 from agentscope.agent import AgentBase, ReActAgent
 from agentscope.model import ModelBase
 
-from tutorial.example_avalon.agents.thinking_react_agent import ThinkingReActAgent
+from games.avalon.agents.thinking_react_agent import ThinkingReActAgent
 
 
 def create_agent_for_role(
