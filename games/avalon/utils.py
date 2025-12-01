@@ -199,25 +199,46 @@ class GameLogger:
         logger.info(f"Game log saved to {path}")
     
     async def _save_agent_memories(self, agents: list[AgentBase], roles: list[tuple]) -> None:
-        """Save each agent's memory to separate JSON files."""
+        """Save each agent's memory and model call history to separate JSON files."""
         for i, agent in enumerate(agents):
             try:
-                if not hasattr(agent, 'memory') or agent.memory is None:
-                    continue
-                
-                agent_memory = await agent.memory.get_memory()
-                memory_data = {
+                agent_data = {
                     "agent_name": agent.name,
                     "agent_index": i,
                     "role": roles[i][1] if i < len(roles) else "Unknown",
-                    "memory_count": len(agent_memory),
-                    "memory": [msg.to_dict() for msg in agent_memory],
                 }
                 
-                path = os.path.join(self.game_log_dir, f"{agent.name}_memory.json")
-                with open(path, 'w', encoding='utf-8') as f:
-                    json.dump(memory_data, f, ensure_ascii=False, indent=2)
-                logger.info(f"Agent {agent.name} memory saved to {path}")
+                # Save memory if available
+                if hasattr(agent, 'memory') and agent.memory is not None:
+                    agent_memory = await agent.memory.get_memory()
+                    agent_data["memory_count"] = len(agent_memory)
+                    agent_data["memory"] = [msg.to_dict() for msg in agent_memory]
+                
+                # Save model call history if available (for ThinkingReActAgent)
+                if hasattr(agent, 'model_call_history'):
+                    # Convert model call history to serializable format
+                    serializable_history = []
+                    for call_record in agent.model_call_history:
+                        serializable_record = {
+                            "prompt": call_record.get("prompt", ""),
+                            "response": call_record.get("response", ""),
+                            "response_msg": self._convert_to_serializable(call_record.get("response_msg", {})),
+                        }
+                        serializable_history.append(serializable_record)
+                    agent_data["model_call_history"] = serializable_history
+                    agent_data["model_call_count"] = len(serializable_history)
+                    
+                    # Log model call history to logger
+                    logger.info(f"Agent {agent.name} model call history: {agent_data['model_call_count']} calls")
+                    for idx, call_record in enumerate(serializable_history):
+                        logger.debug(f"Agent {agent.name} call {idx + 1}: prompt length={len(call_record.get('prompt', ''))}, response length={len(call_record.get('response', ''))}")
+                
+                # Only save if we have data
+                if "memory" in agent_data or "model_call_history" in agent_data:
+                    path = os.path.join(self.game_log_dir, f"{agent.name}_memory.json")
+                    with open(path, 'w', encoding='utf-8') as f:
+                        json.dump(agent_data, f, ensure_ascii=False, indent=2)
+                    logger.info(f"Agent {agent.name} memory and model calls saved to {path}")
             except Exception as e:
                 logger.warning(f"Failed to save memory for agent {agent.name}: {e}")
 

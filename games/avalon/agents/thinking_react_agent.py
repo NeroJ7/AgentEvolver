@@ -2,6 +2,7 @@
 """A ReAct agent that thinks before speaking, with thinking content kept private."""
 from typing import Type, Any, Literal
 import re
+import json
 
 from pydantic import BaseModel
 
@@ -78,6 +79,9 @@ class ThinkingReActAgent(ReActAgent):
         # Append thinking instruction to system prompt permanently
         # No need to switch it back and forth in reply method
         self._sys_prompt = f"{self._sys_prompt}\n\n{thinking_sys_prompt}"
+        
+        # Store model call history: list of dicts with 'prompt' and 'response'
+        self.model_call_history: list[dict[str, Any]] = []
     
     async def _reasoning(
         self,
@@ -88,11 +92,50 @@ class ThinkingReActAgent(ReActAgent):
         The complete message (with thinking) is stored in memory,
         but the returned message (for broadcast) excludes thinking content.
         """
+                
+        # Convert Msg objects into the required format of the model API
+        prompt = await self.formatter.format(
+            msgs=[
+                Msg("system", self.sys_prompt, "system"),
+                *await self.memory.get_memory(),
+                # The hint messages to guide the agent's behavior, maybe empty
+                *await self._reasoning_hint_msgs.get_memory(),
+            ],
+        )
+        
         # Call parent reasoning to get the response
         # Parent's _reasoning will:
         # 1. Generate the complete response (potentially with thinking)
         # 2. Add the complete msg to memory in its finally block
         msg = await super()._reasoning(tool_choice)
+        
+        # Record model call history (prompt and response)
+        if msg is not None:
+            # Extract text content from response
+            from games.avalon.utils import Parser 
+            response_content = Parser.extract_text_from_content(msg.content)
+            
+            # Convert prompt to string if it's not already
+            prompt_str = prompt
+            if not isinstance(prompt, str):
+                if isinstance(prompt, dict):
+                    # If prompt is a dict (e.g., from formatter), convert to string
+                    prompt_str = json.dumps(prompt, ensure_ascii=False, indent=2)
+                else:
+                    prompt_str = str(prompt)
+            
+            # Store in history
+            call_record = {
+                "prompt": prompt_str,
+                "response": response_content,
+                "response_msg": msg.to_dict() if hasattr(msg, 'to_dict') else {
+                    "name": msg.name,
+                    "content": response_content,
+                    "role": msg.role,
+                    "timestamp": str(msg.timestamp) if hasattr(msg, 'timestamp') else None,
+                },
+            }
+            self.model_call_history.append(call_record)
         
         if msg is None:
             return msg

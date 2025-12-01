@@ -1,10 +1,6 @@
 # -*- coding: utf-8 -*-
 """Avalon game implemented by agentscope."""
-import os
-from pathlib import Path
 from typing import Any
-
-import yaml
 
 from agentscope.agent import AgentBase
 from agentscope.message import Msg
@@ -26,6 +22,7 @@ class AvalonGame:
         config: AvalonBasicConfig,
         log_dir: str | None = None,
         language: str = "en",
+        observe_agent: AgentBase | None = None,
     ):
         """Initialize Avalon game.
         
@@ -34,11 +31,13 @@ class AvalonGame:
             config: Game configuration.
             log_dir: Directory to save game logs. If None, logs are not saved.
             language: Language for prompts. "en" for English, "zh" or "cn" for Chinese.
+            observe_agent: Optional observer agent to add to all hubs. Default is None.
         """
         self.agents = agents
         self.config = config
         self.log_dir = log_dir
         self.language = language
+        self.observe_agent = observe_agent
         
         # Initialize utilities
         self.localizer = LanguageFormatter(language)
@@ -66,117 +65,12 @@ class AvalonGame:
         
         assert len(agents) == config.num_players, f"The Avalon game needs exactly {config.num_players} players."
     
-    @classmethod
-    def _load_config(cls, config_path: str | None = None) -> dict[str, Any]:
-        """Load configuration from YAML file."""
-        if config_path is None:
-            config_path = Path(__file__).parent / "config.yaml"
-        else:
-            config_path = Path(config_path)
-        
-        if not config_path.exists():
-            raise FileNotFoundError(f"Config file not found: {config_path}")
-        
-        with open(config_path, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f)
-    
-    @classmethod
-    def _get_config_value(cls, cfg: dict, key_path: str, env_var: str | None = None, default: Any = None) -> Any:
-        """Get config value with priority: env var > config file > default."""
-        if env_var and os.getenv(env_var):
-            return os.getenv(env_var)
-        
-        keys = key_path.split('.')
-        value = cfg
-        for key in keys:
-            if not isinstance(value, dict) or key not in value:
-                return default
-            value = value[key]
-        return value
-    
-    @classmethod
-    def _create_agents_from_config(
-        cls,
-        cfg: dict,
-        num_players: int,
-        use_user_agent: bool,
-        user_agent_id: int,
-    ) -> list[AgentBase]:
-        """Create agents from configuration."""
-        from agentscope.model import DashScopeChatModel
-        from agentscope.formatter import DashScopeMultiAgentFormatter
-        from agentscope.memory import InMemoryMemory
-        from agentscope.tool import Toolkit
-        
-        from games.avalon.agents.thinking_react_agent import ThinkingReActAgent
-        from games.avalon.agents.terminal_user_agent import TerminalUserAgent
-        
-        model_name = cls._get_config_value(cfg, "model.name", "MODEL_NAME", "qwen-plus")
-        api_key = cls._get_config_value(cfg, "model.api_key", "API_KEY")
-        stream = cfg["model"].get("stream", False)
-        model_params = {k: v for k, v in cfg["model"].items() if k not in ["name", "api_key", "stream"]}
-        
-        def create_model(role: str | None = None) -> DashScopeChatModel:
-            """Create model with optional role-specific overrides."""
-            role_cfg = cfg.get("roles", {}).get(role, {}) if role else {}
-            return DashScopeChatModel(
-                model_name=role_cfg.get("name", model_name),
-                api_key=api_key,
-                stream=stream,
-                **{**model_params, **{k: v for k, v in role_cfg.items() if k != "name"}}
-            )
-        
-        agents = []
-        for i in range(num_players):
-            if use_user_agent and i == user_agent_id:
-                agents.append(TerminalUserAgent(name=f"Player{i}"))
-            else:
-                agents.append(ThinkingReActAgent(
-                    name=f"Player{i}",
-                    sys_prompt="",
-                    model=create_model(),
-                    formatter=DashScopeMultiAgentFormatter(),
-                    memory=InMemoryMemory(),
-                    toolkit=Toolkit(),
-                ))
-        return agents
-    
-    @classmethod
-    def from_config(
-        cls,
-        config_path: str | None = None,
-        language: str | None = None,
-        use_user_agent: bool | None = None,
-        user_agent_id: int | None = None,
-    ) -> 'AvalonGame':
-        """Create AvalonGame instance from YAML configuration.
-        
-        Args:
-            config_path: Path to config YAML file. If None, uses default config.yaml.
-            language: Override language from config.
-            use_user_agent: Override use_user_agent from config.
-            user_agent_id: Override user_agent_id from config.
-            
-        Returns:
-            AvalonGame instance.
-        """
-        cfg = cls._load_config(config_path)
-        
-        num_players = cfg["game"]["num_players"]
-        game_language = language or cls._get_config_value(cfg, "game.language", "LANGUAGE", "en")
-        log_dir = cls._get_config_value(cfg, "game.log_dir", "LOG_DIR", "logs")
-        use_user_agent = use_user_agent if use_user_agent is not None else cfg["user_agent"]["enabled"]
-        user_agent_id = user_agent_id if user_agent_id is not None else cfg["user_agent"]["player_id"]
-        
-        agents = cls._create_agents_from_config(cfg, num_players, use_user_agent, user_agent_id)
-        
-        os.makedirs(log_dir, exist_ok=True)
-        return cls(
-            agents=agents,
-            config=AvalonBasicConfig.from_num_players(num_players),
-            log_dir=log_dir,
-            language=game_language,
-        )
+    def _get_hub_participants(self) -> list[AgentBase]:
+        """Get participants list for hub, including observe_agent if present."""
+        participants = self.agents.copy()
+        if self.observe_agent is not None:
+            participants.append(self.observe_agent)
+        return participants
     
     async def run(self) -> bool:
         """Run the Avalon game.
@@ -185,7 +79,7 @@ class AvalonGame:
             True if good wins, False otherwise.
         """
         # Broadcast game begin message and system prompt
-        async with MsgHub(participants=self.agents) as greeting_hub:
+        async with MsgHub(participants=self._get_hub_participants()) as greeting_hub:
             # Format system prompt using localizer
             system_prompt_content = self.localizer.format_system_prompt(self.config, self.Prompts)
             system_prompt_msg = await self.moderator(system_prompt_content)
@@ -206,7 +100,7 @@ class AvalonGame:
             mission_id = self.env.turn
             round_id = self.env.round
 
-            async with MsgHub(participants=self.agents, enable_auto_broadcast=False, name="all_players") as all_players_hub:
+            async with MsgHub(participants=self._get_hub_participants(), enable_auto_broadcast=False, name="all_players") as all_players_hub:
                 if phase == 0:
                     await self._handle_team_selection_phase(
                         all_players_hub, mission_id, round_id, leader
@@ -219,7 +113,7 @@ class AvalonGame:
                     await self._handle_assassination_phase(all_players_hub)
 
         # Game over - broadcast final result
-        async with MsgHub(participants=self.agents) as end_hub:
+        async with MsgHub(participants=self._get_hub_participants()) as end_hub:
             end_message = self.localizer.format_game_end_message(
                 self.env.good_victory,
                 self.roles,
@@ -339,7 +233,7 @@ class AvalonGame:
         await all_players_hub.broadcast(vote_prompt)
 
         # Collect votes
-        msgs_vote = await fanout_pipeline(self.agents, msg=vote_prompt, enable_gather=True)
+        msgs_vote = await fanout_pipeline(self.agents, msg=[], enable_gather=True)
         votes = [self.parser.parse_vote_from_response(msg.content) for msg in msgs_vote]
         outcome = self.env.gather_team_votes(votes)
         
@@ -372,7 +266,7 @@ class AvalonGame:
         await all_players_hub.broadcast(vote_prompt)
 
         # Collect votes (private)
-        msgs_vote = await fanout_pipeline(team_agents, msg=vote_prompt, enable_gather=True)
+        msgs_vote = await fanout_pipeline(team_agents, msg=[], enable_gather=True)
         votes = [self.parser.parse_vote_from_response(msg.content) for msg in msgs_vote]
         outcome = self.env.gather_quest_votes(votes)
         
@@ -424,3 +318,43 @@ class AvalonGame:
         
         # Add assassination to log
         self.game_logger.add_assassination(assassin_id, target, bool(good_wins))
+
+
+# ============================================================================
+# Convenience Function
+# ============================================================================
+
+async def avalon_game(
+    agents: list[AgentBase],
+    config: AvalonBasicConfig,
+    log_dir: str | None = None,
+    language: str = "en",
+    web_mode: str | None = None,
+    web_observe_agent: AgentBase | None = None,
+) -> bool:
+    """Convenience function to run Avalon game.
+    
+    This is a wrapper around AvalonGame class for backward compatibility.
+    
+    Args:
+        agents: List of agents (5-10 players). Can be ReActAgent, ThinkingReActAgent, or UserAgent.
+        config: Game configuration.
+        log_dir: Directory to save game logs. If None, logs are not saved.
+        language: Language for prompts. "en" for English, "zh" or "cn" for Chinese.
+        web_mode: Web mode ("observe" or "participate"). If None, runs in normal mode.
+        web_observe_agent: Observer agent for web observe mode. Only used when web_mode="observe".
+    
+    Returns:
+        True if good wins, False otherwise.
+    """
+    # Create AvalonGame instance
+    game = AvalonGame(
+        agents=agents,
+        config=config,
+        log_dir=log_dir,
+        language=language,
+        observe_agent=web_observe_agent if web_mode == "observe" else None,
+    )
+    
+    # Run the game
+    return await game.run()
