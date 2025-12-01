@@ -2,16 +2,12 @@
  <img src="figs/mozhang3.png" alt="CuES Logo" width="3%"> CuES: A Curiosity-driven and Environment-grounded Synthesis Framework for Agentic RL
 </h2>
 
+
+CuES is a **curiosity-driven, environment-grounded framework** for synthesizing high-quality agentic data **without predefined seed queries**.
+
 <p align="center">
   <img src="figs/cues.png" alt="CuES Logo" width="1200">
 </p>
-
-
-
-
-## 🔍 Overview
-
-CuES is a **curiosity-driven, environment-grounded framework** for synthesizing high-quality agentic data **without predefined seed queries**.
 
 Conceptually, CuES unfolds in **five coordinated stages** (as in the paper):
 
@@ -31,11 +27,15 @@ This repository implements a **lightweight three-stage pipeline** that closely f
   Execute synthesized tasks with an agent, record complete trajectories, and attach success/failure metadata.
 - **Optional: Query Rewrite，Requirement Confirm**  
 
+<p align="center">
+  <img src="figs/visual.png" alt="CuES Logo" width="800">
+</p>
+
+While performance on benchmarks(AppWorld, WebShop, and BFCL v3) continues to improve with larger LLMs, Qwen2.5 14B under the proposed CuES achieves a substantially higher accuracy across all benchmarks.
+
+
 CuES is evaluated on **AppWorld**, **WebShop**, and **BFCL v3 Multi-Turn Base**, and the synthesized data is shown in the paper to match or surpass original datasets in terms of **diversity, executability, and downstream RL performance**.
 
-<p align="center">
-  <img src="figs/visual.png" alt="CuES Logo" width="900">
-</p>
 
 ---
 
@@ -51,7 +51,7 @@ CuES is evaluated on **AppWorld**, **WebShop**, and **BFCL v3 Multi-Turn Base**,
   Operates without manual seed tasks; optional seeds only refine the concept pool.
 - **Multi-environment support**  
   Designed for AppWorld, WebShop, and BFCL v3 Multi-Turn Base via EnvService.
-- **Deterministic JSON schemas per stage**  
+- **Custom JSON schemas per stage**  
   Stable data interfaces across Stage 1/2/3 and Query Rewrite.
 - **Config-driven pipeline**  
   All behavior controlled through `config/config.yaml`.
