@@ -146,8 +146,8 @@ wsClient.onMessage('game_state', (state) => {
         messagesContainer.style.display = 'block';
         inputContainer.style.display = 'flex';
         gameStarted = true;
-        // Change button to Exit
-        updateBackExitButton(true);
+        // Change button to Exit (stops game)
+        updateBackExitButton('running');
     }
     // Handle game stopped - reset state and show setup
     if (state.status === 'stopped') {
@@ -156,7 +156,7 @@ wsClient.onMessage('game_state', (state) => {
         messagesContainer.style.display = 'none';
         inputContainer.style.display = 'none';
         hideInputRequest();
-        updateBackExitButton(false);
+        updateBackExitButton('stopped');
         // Reset message count and clear messages
         messageCount = 0;
         messagesContainer.innerHTML = '<p style="text-align: center; color: #999; padding: 20px;">Game stopped. You can start a new game.</p>';
@@ -166,6 +166,8 @@ wsClient.onMessage('game_state', (state) => {
     if (state.status === 'finished') {
         // Game finished normally, can start new game
         gameStarted = false;
+        // Change button to Exit (goes back to home)
+        updateBackExitButton('finished');
     }
     // Handle waiting state - show setup
     if (state.status === 'waiting') {
@@ -174,7 +176,7 @@ wsClient.onMessage('game_state', (state) => {
         messagesContainer.style.display = 'none';
         inputContainer.style.display = 'none';
         hideInputRequest();
-        updateBackExitButton(false);
+        updateBackExitButton('waiting');
     }
 });
 
@@ -263,8 +265,16 @@ async function startGame() {
     }
 }
 
-function updateBackExitButton(isGameRunning) {
-    if (isGameRunning) {
+function updateBackExitButton(gameStatus) {
+    // gameStatus can be: 'running', 'finished', 'stopped', 'waiting', or boolean (for backward compatibility)
+    let status = gameStatus;
+    if (typeof gameStatus === 'boolean') {
+        // Backward compatibility: convert boolean to status
+        status = gameStatus ? 'running' : 'waiting';
+    }
+    
+    if (status === 'running') {
+        // Game is running: show Exit button (stops the game)
         backExitButton.textContent = 'Exit';
         backExitButton.title = 'Exit Game';
         backExitButton.href = '#';
@@ -287,7 +297,17 @@ function updateBackExitButton(isGameRunning) {
                 }
             }
         };
+    } else if (status === 'finished') {
+        // Game finished: show Exit button (goes back to home)
+        backExitButton.textContent = 'Exit';
+        backExitButton.title = 'Back to Home';
+        backExitButton.href = '/';
+        backExitButton.onclick = (e) => {
+            e.preventDefault();
+            window.location.href = '/';
+        };
     } else {
+        // Game not running or stopped: show Back to Home button
         backExitButton.textContent = '← Back to Home';
         backExitButton.title = 'Back to Home';
         backExitButton.href = '/';
