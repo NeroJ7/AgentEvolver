@@ -212,6 +212,7 @@ class AvalonGame:
         team = self.parser.parse_team_from_response(team_response.content)
         
         # Normalize team size
+        # TODO[1202]: move this to utils.py
         team = list(set(team))[:self.env.get_team_size()]
         if len(team) < self.env.get_team_size():
             team.extend([i for i in range(self.config.num_players) if i not in team][:self.env.get_team_size() - len(team)])
@@ -228,12 +229,11 @@ class AvalonGame:
         """Handle Team Voting Phase."""
         current_team = self.env.get_current_quest_team()
         
-        # Broadcast voting phase
+        # Send voting prompt to all agents (private)
         vote_prompt = await self.moderator(self.Prompts.to_all_team_vote.format(team=list(current_team)))
-        await all_players_hub.broadcast(vote_prompt)
 
-        # Collect votes
-        msgs_vote = await fanout_pipeline(self.agents, msg=[], enable_gather=True)
+        # Collect votes - vote_prompt is sent to all agents
+        msgs_vote = await fanout_pipeline(self.agents, msg=[vote_prompt], enable_gather=True)
         votes = [self.parser.parse_vote_from_response(msg.content) for msg in msgs_vote]
         outcome = self.env.gather_team_votes(votes)
         
@@ -261,12 +261,11 @@ class AvalonGame:
         current_team = self.env.get_current_quest_team()
         team_agents = [self.agents[i] for i in current_team]
         
-        # Broadcast voting phase
+        # Send voting prompt only to team agents (private)
         vote_prompt = await self.moderator(self.Prompts.to_all_quest_vote.format(team=list(current_team)))
-        await all_players_hub.broadcast(vote_prompt)
 
-        # Collect votes (private)
-        msgs_vote = await fanout_pipeline(team_agents, msg=[], enable_gather=True)
+        # Collect votes (private) - vote_prompt is sent only to team_agents
+        msgs_vote = await fanout_pipeline(team_agents, msg=[vote_prompt], enable_gather=True)
         votes = [self.parser.parse_vote_from_response(msg.content) for msg in msgs_vote]
         outcome = self.env.gather_quest_votes(votes)
         
