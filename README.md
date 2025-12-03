@@ -25,7 +25,7 @@ improve their capabilities, aiming for efficient, cost-effective, and continuous
 
 
 ## 📰 News
-- **[2025-12]** 🪄 [CuES](https://www.arxiv.org/abs/2512.01311) has been released now! It is an independent self-questioning framework, which can rapidly synthesizes diverse, executable training data for agentic RL.
+- **[2025-12]** 📢 New preprint [CuES](https://www.arxiv.org/abs/2512.01311) on an extended self-questioning method released with [accompanying code](https://github.com/modelscope/AgentEvolver/research/CuES).
 - **[2025-11]** 📄 [The AgentEvolver Technical Report is now available](https://arxiv.org/abs/2511.10395), detailing the framework’s architecture, methodology, and key findings.
 - **[2025-11]** 🧩 AgentEvolver v1 has been released now!
 
