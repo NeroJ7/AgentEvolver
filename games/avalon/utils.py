@@ -94,12 +94,18 @@ class GameLogger:
             "num_players": num_players,
         }
     
-    def create_game_log_dir(self, log_dir: str | None) -> str | None:
-        """Create game log directory and return the path."""
+    def create_game_log_dir(self, log_dir: str | None, timestamp: str | None = None) -> str | None:
+        """Create game log directory and return the path.
+        
+        Args:
+            log_dir: Base directory for logs. If None, returns None.
+            timestamp: Optional timestamp string. If None, generates a new one.
+        """
         if not log_dir:
             return None
         
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if timestamp is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.game_log_dir = os.path.join(log_dir, f"game_{timestamp}")
         os.makedirs(self.game_log_dir, exist_ok=True)
         logger.info(f"Game logs will be saved to: {self.game_log_dir}")

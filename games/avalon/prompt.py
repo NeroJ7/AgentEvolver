@@ -105,7 +105,7 @@ class EnglishPrompts:
     )
 
     to_all_quest_vote = (
-        "The team {team} was approved. Team members, please vote on the quest. "
+        "Team {team} (player IDs) was approved. You are one of the selected team members, please vote on the quest. "
         "Answer 'Yes' to pass the quest or 'No' to fail it."
     )
 
