@@ -87,6 +87,7 @@ class EvalAvalonWorkflow:
         """Create an agent for a player."""
         from agentscope.model import OpenAIChatModel
         from agentscope.memory import InMemoryMemory
+        from agentscope.formatter import OpenAIMultiAgentFormatter
         from agentscope.tool import Toolkit
         from games.avalon.agents.thinking_react_agent import ThinkingReActAgent
         from games.avalon.agents.secure_multi_agent_formatter import SecureMultiAgentFormatter  # pyright: ignore[reportMissingImports]
@@ -115,7 +116,7 @@ class EvalAvalonWorkflow:
         }
         # turn off auto-thinking for qwen3
         generate_kwargs['extra_body'] = {
-                'enable_thinking': True,  # Required for non-streaming calls with DashScope
+                'enable_thinking': False,  # Required for non-streaming calls with DashScope
             }
         if generate_kwargs:
             model_kwargs['generate_kwargs'] = generate_kwargs
@@ -126,9 +127,10 @@ class EvalAvalonWorkflow:
             name=f"Player{player_id}",
             sys_prompt="",
             model=model,
-            formatter=SecureMultiAgentFormatter(),
+            formatter=OpenAIMultiAgentFormatter(),
             memory=InMemoryMemory(),
             toolkit=Toolkit(),
+            # thinking_sys_prompt=""
         )
     
     async def _execute_async(self) -> bool:
