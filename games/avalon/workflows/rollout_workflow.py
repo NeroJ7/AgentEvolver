@@ -19,10 +19,6 @@ from games.avalon.workflows.agentscope_cmt import AgentscopeCMT
 
 
 
-# TODO: 传入一个配置，并行玩几局游戏，兼容训练和评测
-# TODO： 如果训练的话，多传入Task，覆盖原先的task_config.yaml，主要包含要训练的模型&角色
-# TODO：评测脚本，起llm-server
-
 class RoleManager:
     """Manages role indexing and identification."""
     

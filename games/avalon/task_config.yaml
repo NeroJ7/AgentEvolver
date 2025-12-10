@@ -10,20 +10,20 @@ game:
 # are taken from default_model. If specified in roles, they override the default values.
 # temperature, max_tokens, stream, trainable are optional - if not specified, use default_model configuration
 roles:
-  merlin:
-    model_name: qwen2.5-32b-instruct
-    # temperature: 0.7  # Optional, uses default_model configuration
-    # max_tokens: 2048  # Optional
+  # merlin:
+  #   model_name: qwen2.5-32b-instruct
+  #   # temperature: 0.7  # Optional, uses default_model configuration
+  #   # max_tokens: 2048  # Optional
   
-  servant_0:
-    model_name: qwen2.5-32b-instruct
+  # servant_0:
+  #   model_name: qwen2.5-32b-instruct
   
-  servant_1:
-    url: http://localhost:8000/v1
-    model_name: local_model
+  # servant_1:
+  #   url: http://localhost:8000/v1
+  #   model_name: local_model
   
-  minion:
-    model_name: qwen-max
+  # minion:
+  #   model_name: qwen-max
     
   # assassin:
   #   act_by_user: true
@@ -32,9 +32,9 @@ roles:
 # Used for roles not configured in roles, or as default values for optional parameters in roles
 default_model:
   url: https://dashscope.aliyuncs.com/compatible-mode/v1
-  model_name: qwen-plus
+  model_name: qwen3-32b
   temperature: 0.7
   max_tokens: 2048
-  stream: false
+  stream: true
   trainable: false
   act_by_user: false
