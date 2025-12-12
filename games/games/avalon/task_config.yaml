@@ -3,7 +3,7 @@ game:
   name: avalon
   num_players: 5
   language: en  # en: English, cn: Chinese
-  log_dir: logs
+  log_dir: games/logs
 
 # Role-specific configuration
 # If url or model_name are not specified in a role, all corresponding parameters 

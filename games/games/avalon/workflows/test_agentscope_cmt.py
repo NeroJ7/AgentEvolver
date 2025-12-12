@@ -24,7 +24,7 @@ except ImportError:
     sys.exit(1)
 
 try:
-    from games.avalon.workflows.agentscope_cmt import AgentscopeCMT
+    from games.games.avalon.workflows.agentscope_cmt import AgentscopeCMT
     from agentevolver.schema.trajectory import Reward
 except ImportError as e:
     print(f"Error importing modules: {e}")

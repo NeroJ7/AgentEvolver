@@ -6,7 +6,7 @@ from agentscope.message import Msg
 
 from games.web.game_state_manager import GameStateManager  #add gpt unified gsm
 from games.web.web_user_input import WebUserInput  #add gpt unified user input
-from games.avalon.utils import Parser as AvalonParser  #add gpt import Avalon parser for content extraction
+from games.games.avalon.utils import Parser as AvalonParser  #add gpt import Avalon parser for content extraction
 
 
 class WebUserAgent(UserAgent):

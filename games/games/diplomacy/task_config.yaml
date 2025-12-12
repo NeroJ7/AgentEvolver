@@ -14,7 +14,7 @@ game:
   max_phases: 20
   negotiation_rounds: 3
   seed: 42
-  language: zn
+  language: zh
   log_dir: logs
 
 # Power-specific configuration

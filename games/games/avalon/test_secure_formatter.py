@@ -16,7 +16,7 @@ sys.path.insert(0, str(workspace_root))
 
 from agentscope.message import Msg, TextBlock
 from agentscope.token import HuggingFaceTokenCounter
-from games.avalon.agents.secure_multi_agent_formatter import SecureMultiAgentFormatter
+from games.games.avalon.agents.secure_multi_agent_formatter import SecureMultiAgentFormatter
 
 
 async def test_formatter():

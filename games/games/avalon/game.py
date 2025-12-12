@@ -8,8 +8,8 @@ from agentscope.pipeline import MsgHub, fanout_pipeline
 
 from loguru import logger
 
-from games.avalon.engine import AvalonGameEnvironment, AvalonBasicConfig
-from games.avalon.utils import Parser, GameLogger, LanguageFormatter
+from games.games.avalon.engine import AvalonGameEnvironment, AvalonBasicConfig
+from games.games.avalon.utils import Parser, GameLogger, LanguageFormatter
 from games.agents.echo_agent import EchoAgent
 
 
@@ -58,9 +58,9 @@ class AvalonGame:
         
         # Import prompts based on language
         if self.localizer.is_zh:
-            from games.avalon.prompt import ChinesePrompts as Prompts
+            from games.games.avalon.prompt import ChinesePrompts as Prompts
         else:
-            from games.avalon.prompt import EnglishPrompts as Prompts
+            from games.games.avalon.prompt import EnglishPrompts as Prompts
         self.Prompts = Prompts
         
         # Initialize game environment with preset roles if provided

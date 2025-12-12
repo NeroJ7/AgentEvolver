@@ -13,7 +13,7 @@ project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 from agentevolver.schema.task import Task
-from games.diplomacy.workflows.eval_workflow import EvalDiplomacyWorkflow
+from games.games.diplomacy.workflows.eval_workflow import EvalDiplomacyWorkflow
 
 
 def main() -> None:

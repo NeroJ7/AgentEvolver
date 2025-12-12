@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Optional, TYPE_CHECKING
 
 from agentevolver.module.context_manager.cmt_linear import Linear_CMT, ExtendedMessage
 from agentevolver.schema.trajectory import Reward
-from games.avalon.utils import Parser
+from games.games.avalon.utils import Parser
 
 if TYPE_CHECKING:
     from agentevolver.schema.trajectory import Sample

@@ -202,7 +202,10 @@ def load_prompts(language: str = "en") -> dict:
     加载prompt文本，支持中英文。
     """
     base_path = os.path.join(os.path.dirname(__file__), "prompt")
-    if language == "zn" or os.getenv("LANGUAGE") == "zn":
+    lang = (language or "").lower().strip()
+    # Web 端使用 zh；历史配置里也可能是 zn/cn/chinese 等
+    zh_aliases = {"zh", "zn", "cn", "zh-cn", "zh_cn", "chinese"}
+    if lang in zh_aliases or (os.getenv("LANGUAGE", "").lower().strip() in zh_aliases):
         prompts_dir = os.path.join(base_path, "prompts_simple_zn")
     else:
         prompts_dir = os.path.join(base_path, "prompts_simple")

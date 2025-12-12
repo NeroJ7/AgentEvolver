@@ -12,10 +12,10 @@ from loguru import logger
 from agentevolver.utils.agentscope_utils import BaseAgentscopeWorkflow
 from agentevolver.schema.task import Task
 from agentevolver.schema.trajectory import Trajectory, Reward
-from games.avalon.game import AvalonGame
-from games.avalon.engine import AvalonBasicConfig, AvalonGameEnvironment
-from games.avalon.utils import GameLogger
-from games.avalon.workflows.agentscope_cmt import AgentscopeCMT
+from games.games.avalon.game import AvalonGame
+from games.games.avalon.engine import AvalonBasicConfig, AvalonGameEnvironment
+from games.games.avalon.utils import GameLogger
+from games.games.avalon.workflows.agentscope_cmt import AgentscopeCMT
 
 
 

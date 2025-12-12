@@ -16,8 +16,8 @@ from agentscope.formatter import DashScopeMultiAgentFormatter
 from agentscope.memory import InMemoryMemory
 from agentscope.tool import Toolkit
 
-from games.avalon.game import AvalonGame
-from games.avalon.engine import AvalonBasicConfig
+from games.games.avalon.game import AvalonGame
+from games.games.avalon.engine import AvalonBasicConfig
 from games.agents.thinking_react_agent import ThinkingReActAgent
 from games.agents.terminal_user_agent import TerminalUserAgent
 

@@ -424,16 +424,30 @@ class DiplomacyGame:
 
             # Deliver messages
             for sender, recipient, content in round_messages:
+                msg_text = f"{sender} -> {recipient}: {content}"
+                deliver_targets = []
+
+                # If recipient is a real power, deliver to recipient + sender (each at most once).
                 if recipient in self.power_agent_map:
-                    await self.power_agent_map[recipient].observe(Msg(name=sender, content=f"{sender} -> {recipient}: {content}", role="assistant"))
+                    deliver_targets.append(self.power_agent_map[recipient])
+                    if sender in self.power_agent_map:
+                        deliver_targets.append(self.power_agent_map[sender])
                 else:
-                    for agent in self.power_agent_map.values():
-                        await agent.observe(Msg(name=sender, content=f"{sender} -> {recipient}: {content}", role="assistant"))
-                if sender in self.power_agent_map:
-                    await self.power_agent_map[sender].observe(Msg(name=sender, content=f"{sender} -> {recipient}: {content}", role="assistant"))
-                else:
-                    for agent in self.power_agent_map.values():
-                        await agent.observe(Msg(name=sender, content=f"{sender} -> {recipient}: {content}", role="assistant"))
+                    # Otherwise treat as broadcast (e.g., GLOBAL): deliver once to all powers.
+                    deliver_targets = list(self.power_agent_map.values())
+
+                # Deduplicate targets while preserving order
+                seen_ids = set()
+                unique_targets = []
+                for a in deliver_targets:
+                    aid = getattr(a, "id", id(a))
+                    if aid in seen_ids:
+                        continue
+                    seen_ids.add(aid)
+                    unique_targets.append(a)
+
+                for agent in unique_targets:
+                    await agent.observe(Msg(name=sender, content=msg_text, role="assistant"))
 
     async def _handle_order_phase(self, current_phase, phase_log):
         print(f"{Colors.OKBLUE}--- 开始书写命令 ---{Colors.ENDC}")

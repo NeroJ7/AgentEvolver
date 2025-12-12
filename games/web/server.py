@@ -251,8 +251,11 @@ async def get_options(game: str = "diplomacy"):
     """Options for diplomacy (callable before start-game)."""
     if game != "diplomacy":
         raise HTTPException(status_code=404, detail="options only for diplomacy")
-    from games.diplomacy.engine import DiplomacyConfig
+    from games.games.diplomacy.engine import DiplomacyConfig
     cfg = DiplomacyConfig.default()
+    # Normalize language for UI select values (UI uses: en / zh)
+    lang = (cfg.language or "").lower().strip()
+    ui_language = "zh" if lang in {"zh", "zn", "cn", "zh-cn", "zh_cn", "chinese"} else "en"
     all_models = set()
     power_models = {}
     if cfg.models:
@@ -279,7 +282,7 @@ async def get_options(game: str = "diplomacy"):
             "max_phases": cfg.max_phases,
             "map_name": cfg.map_name,
             "negotiation_rounds": cfg.negotiation_rounds,
-            "language": cfg.language,
+            "language": ui_language,
         },
     }
 

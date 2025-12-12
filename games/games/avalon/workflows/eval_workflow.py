@@ -13,8 +13,8 @@ from openai import OpenAI
 from agentevolver.utils.agentscope_utils import BaseAgentscopeWorkflow
 from agentevolver.schema.task import Task
 from agentevolver.schema.trajectory import Trajectory
-from games.avalon.game import AvalonGame
-from games.avalon.engine import AvalonBasicConfig, AvalonGameEnvironment
+from games.games.avalon.game import AvalonGame
+from games.games.avalon.engine import AvalonBasicConfig, AvalonGameEnvironment
 
 
 class RoleManager:

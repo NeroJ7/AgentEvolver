@@ -8,8 +8,8 @@ from typing import Any, Dict, List, Optional, Union
 from agentevolver.utils.agentscope_utils import BaseAgentscopeWorkflow
 from agentevolver.schema.task import Task
 from agentevolver.schema.trajectory import Trajectory, Reward
-from games.diplomacy.game import DiplomacyGame
-from games.diplomacy.engine import DiplomacyConfig
+from games.games.diplomacy.game import DiplomacyGame
+from games.games.diplomacy.engine import DiplomacyConfig
 
 
 class PowerManager:

@@ -23,8 +23,10 @@ class DiplomacyConfig:
     @classmethod
     def default(cls) -> "DiplomacyConfig":
         """
-        优先从yaml读取默认值（如有），否则用硬编码默认值。
-        支持通过环境变量 DIPLOMACY_CONFIG_YAML 指定yaml路径。
+        优先从 yaml 读取默认值（如有），否则用硬编码默认值。
+        支持通过环境变量 DIPLOMACY_CONFIG_YAML 指定 yaml 路径。
+
+        约定：默认读取 `games/diplomacy/task_config.yaml`（弃用旧的 config.yaml）。
         """
         # 1. 默认参数
         base = dict(
@@ -38,7 +40,7 @@ class DiplomacyConfig:
         )
 
         # 2. 尝试从yaml读取
-        yaml_path = os.environ.get("DIPLOMACY_CONFIG_YAML", "games/diplomacy/config.yaml")
+        yaml_path = os.environ.get("DIPLOMACY_CONFIG_YAML", "games/diplomacy/task_config.yaml")
         models = None
         if os.path.exists(yaml_path):
             try:

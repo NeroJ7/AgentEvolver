@@ -22,12 +22,12 @@ from games.web.web_agent import WebUserAgent, ObserveAgent  #add gpt unified age
 
 # Avalon imports
 from games.agents.thinking_react_agent import ThinkingReActAgent
-from games.avalon.game import avalon_game
-from games.avalon.engine import AvalonBasicConfig
+from games.games.avalon.game import avalon_game
+from games.games.avalon.engine import AvalonBasicConfig
 
 
-from games.diplomacy.engine import DiplomacyConfig
-from games.diplomacy.game import diplomacy_game
+from games.games.diplomacy.engine import DiplomacyConfig
+from games.games.diplomacy.game import diplomacy_game
 
 
 async def run_avalon(
