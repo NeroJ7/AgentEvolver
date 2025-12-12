@@ -87,9 +87,12 @@ class EvalAvalonWorkflow:
         """Create an agent for a player."""
         from agentscope.model import OpenAIChatModel
         from agentscope.memory import InMemoryMemory
+        from agentscope.formatter import OpenAIMultiAgentFormatter
+        from agentscope.token import HuggingFaceTokenCounter
         from agentscope.tool import Toolkit
-        from games.agents.thinking_react_agent import ThinkingReActAgent
-        from games.agents.secure_multi_agent_formatter import SecureMultiAgentFormatter
+        from games.avalon.agents.thinking_react_agent import ThinkingReActAgent
+        from games.avalon.agents.secure_multi_agent_formatter import SecureMultiAgentFormatter  # pyright: ignore[reportMissingImports]
+
         
         model_config = self._get_model_config(indexed_role, base_role)
         
@@ -120,12 +123,29 @@ class EvalAvalonWorkflow:
             model_kwargs['generate_kwargs'] = generate_kwargs
         
         model = OpenAIChatModel(**model_kwargs)
-
-        # Prefer secure formatter to:
-        # - include thinking history safely (when present)
-        # - prevent agent-tag forgery in conversation history
+        
+        # FIXME: model_name_for_tokenizer defaults to HuggingFace Qwen3-4B
+        model_name_for_tokenizer = "Qwen/Qwen3-4B"
+        
+        # Calculate max_tokens for formatter (leave room for response)
+        # Follow the same logic as rollout_workflow.py
+        formatter_config = self.config_dict.get('formatter', {}) if self.config_dict else {}
+        max_model_len = formatter_config.get('max_model_len')
+        response_length = formatter_config.get('response_length')
+        max_tokens = max_model_len - response_length if max_model_len and response_length else None
+        
+        # Get preserved agent names from config (if available)
+        # Default to preserving "Moderator" if not specified
+        preserved_agent_names = ["Moderator"]
+        
+        # Create formatter with truncation support
         formatter = SecureMultiAgentFormatter(
-            preserved_agent_names=["Moderator"],
+            token_counter=HuggingFaceTokenCounter(
+                                pretrained_model_name_or_path=model_name_for_tokenizer,
+                                use_mirror=True,
+                          ),
+            max_tokens=max_tokens,
+            preserved_agent_names=preserved_agent_names,
         )
         
         return ThinkingReActAgent(
