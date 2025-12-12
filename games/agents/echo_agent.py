@@ -1,5 +1,5 @@
-"""Echo agent for moderator announcements (shared)."""
-
+# -*- coding: utf-8 -*-
+"""Echo agent for moderator announcements."""
 from typing import Any
 
 from agentscope.agent import AgentBase
@@ -31,3 +31,4 @@ class EchoAgent(AgentBase):
 
     async def observe(self, msg: Msg | list[Msg] | None) -> None:
         """Observe the user's message."""
+

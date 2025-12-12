@@ -18,8 +18,8 @@ from agentscope.tool import Toolkit
 
 from games.avalon.game import AvalonGame
 from games.avalon.engine import AvalonBasicConfig
-from games.avalon.agents.thinking_react_agent import ThinkingReActAgent
-from games.avalon.agents.terminal_user_agent import TerminalUserAgent
+from games.agents.thinking_react_agent import ThinkingReActAgent
+from games.agents.terminal_user_agent import TerminalUserAgent
 
 
 async def main(

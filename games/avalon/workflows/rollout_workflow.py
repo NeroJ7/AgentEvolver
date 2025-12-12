@@ -108,7 +108,7 @@ class AvalonWorkflow(BaseAgentscopeWorkflow):
         from agentscope.formatter import DashScopeMultiAgentFormatter
         from agentscope.memory import InMemoryMemory
         from agentscope.tool import Toolkit
-        from games.avalon.agents.thinking_react_agent import ThinkingReActAgent
+        from games.agents.thinking_react_agent import ThinkingReActAgent
         
 
         # TODO: 检查DashScopeChatModel是否支持本地传入模型

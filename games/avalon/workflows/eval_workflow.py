@@ -80,7 +80,7 @@ class EvalAvalonWorkflow:
         from agentscope.formatter import OpenAIMultiAgentFormatter
         from agentscope.memory import InMemoryMemory
         from agentscope.tool import Toolkit
-        from games.avalon.agents.thinking_react_agent import ThinkingReActAgent
+        from games.agents.thinking_react_agent import ThinkingReActAgent
         
         model_config = self._get_model_config(indexed_role, base_role)
         
