@@ -122,19 +122,24 @@ class ThinkingReActAgent(ReActAgent):
         msg: Msg,
     ) -> tuple[Msg | None, Msg]:
         """Separate thinking content from public response."""
-        text_content = msg.get_text_content()
+        # Prefer Msg.get_text_content() when available, fallback to robust extractor.
+        text_content = (
+            msg.get_text_content()
+            if hasattr(msg, "get_text_content")
+            else extract_text_from_content(msg.content)
+        )
 
         pattern = r"<think>(.*?)</think>"
-        matches = re.findall(pattern, text_content, re.DOTALL)
+        matches = re.findall(pattern, text_content or "", re.DOTALL)
 
-        thinking_content = None
+        thinking_content: str | None = None
         if matches:
             thinking_content = matches[0].strip()
-            public_content = re.sub(pattern, "", text_content, flags=re.DOTALL).strip()
+            public_text = re.sub(pattern, "", text_content, flags=re.DOTALL).strip()
         else:
-            public_content = text_content
+            public_text = (text_content or "").strip()
 
-        thinking_msg = None
+        thinking_msg: Msg | None = None
         if thinking_content:
             thinking_msg = Msg(
                 name=self.name,
@@ -147,42 +152,46 @@ class ThinkingReActAgent(ReActAgent):
                 role="assistant",
             )
 
-        public_blocks = []
-        if isinstance(msg.content, str):
-            public_blocks = [
-                TextBlock(type="text", text=public_content),
-            ]
-        elif isinstance(msg.content, list):
-            has_non_text = any(block.get("type") != "text" for block in msg.content)
+        public_blocks: list[Any] = []
 
-            if has_non_text:
-                for block in msg.content:
-                    if block.get("type") == "text":
-                        block_text = block.get("text", "")
-                        if "<think>" in block_text:
-                            cleaned_text = re.sub(
-                                pattern,
-                                "",
-                                block_text,
-                                flags=re.DOTALL,
-                            ).strip()
-                            if cleaned_text:
-                                public_blocks.append(
-                                    TextBlock(type="text", text=cleaned_text),
-                                )
-                        else:
-                            public_blocks.append(block)
-                    else:
-                        public_blocks.append(block)
-            else:
-                if public_content:
-                    public_blocks = [
-                        TextBlock(type="text", text=public_content),
-                    ]
+        def _get_block_type_and_text(block: Any) -> tuple[str | None, str | None]:
+            if isinstance(block, dict):
+                return block.get("type"), block.get("text")
+            return getattr(block, "type", None), getattr(block, "text", None)
+
+        if isinstance(msg.content, str):
+            if public_text:
+                public_blocks = [TextBlock(type="text", text=public_text)]
+            final_content: Any = public_blocks if public_blocks else ""
+        elif isinstance(msg.content, list):
+            for block in msg.content:
+                block_type, block_text = _get_block_type_and_text(block)
+
+                # Skip explicit "thinking" blocks if present.
+                if block_type == "thinking":
+                    continue
+
+                if block_type == "text":
+                    cleaned_text = re.sub(
+                        pattern,
+                        "",
+                        (block_text or ""),
+                        flags=re.DOTALL,
+                    ).strip()
+                    if cleaned_text:
+                        public_blocks.append(TextBlock(type="text", text=cleaned_text))
+                else:
+                    # Keep other block types (tool_use, image, audio, etc.)
+                    public_blocks.append(block)
+
+            final_content = public_blocks if public_blocks else []
+        else:
+            # Unknown content type; fall back to public_text.
+            final_content = [TextBlock(type="text", text=public_text)] if public_text else ""
 
         public_msg = Msg(
             name=msg.name,
-            content=public_blocks or msg.content,
+            content=final_content,
             role=msg.role,
             metadata=msg.metadata,
         )

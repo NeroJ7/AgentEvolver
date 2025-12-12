@@ -19,10 +19,6 @@ from games.avalon.workflows.agentscope_cmt import AgentscopeCMT
 
 
 
-# TODO: 传入一个配置，并行玩几局游戏，兼容训练和评测
-# TODO： 如果训练的话，多传入Task，覆盖原先的task_config.yaml，主要包含要训练的模型&角色
-# TODO：评测脚本，起llm-server
-
 class RoleManager:
     """Manages role indexing and identification."""
     
@@ -128,14 +124,19 @@ class AvalonRolloutWorkflow(BaseAgentscopeWorkflow):
     def _create_agent(self, player_id: int, indexed_role: str, base_role: str):
         """Create an agent for a player."""
         from agentscope.model import OpenAIChatModel
-        from agentscope.formatter import OpenAIMultiAgentFormatter
         from agentscope.memory import InMemoryMemory
         from agentscope.tool import Toolkit
+        from agentscope.token import HuggingFaceTokenCounter
         from games.agents.thinking_react_agent import ThinkingReActAgent
+        from games.agents.secure_multi_agent_formatter import (
+            SecureMultiAgentFormatter,
+        )
         
         # Use training model if role is training, otherwise create default model
         if self._is_training_role(indexed_role, base_role):
             model = self.model
+            # For training model, use model path from config
+            model_name_for_tokenizer = self.config.actor_rollout_ref.model.path
         else:
             model_config = self._get_model_config(indexed_role, base_role)
             
@@ -158,16 +159,41 @@ class AvalonRolloutWorkflow(BaseAgentscopeWorkflow):
                 k: model_config[k] for k in ['temperature', 'max_tokens']
                 if k in model_config
             }
+            # turn off auto-thinking for qwen3
+            generate_kwargs['extra_body'] = {
+                    'enable_thinking': False,  # Required for non-streaming calls with DashScope
+                }
             if generate_kwargs:
                 model_kwargs['generate_kwargs'] = generate_kwargs
             
             model = OpenAIChatModel(**model_kwargs)
+            model_name_for_tokenizer = self.config.actor_rollout_ref.model.path
+
+        
+        # Calculate max_tokens for formatter (leave room for response)
+        max_model_len = self.config.actor_rollout_ref.rollout.max_model_len
+        response_length = self.config.actor_rollout_ref.rollout.response_length
+        max_tokens = max_model_len - response_length if max_model_len and response_length else None
+        
+        # Get preserved agent names from config (if available)
+        # Default to preserving "主持人" if not specified
+        preserved_agent_names = ["Moderator"]
+        
+        # Create formatter with truncation support
+        formatter = SecureMultiAgentFormatter(
+            token_counter=HuggingFaceTokenCounter(
+                                pretrained_model_name_or_path=model_name_for_tokenizer,
+                                use_mirror=True,
+                          ),
+            max_tokens=max_tokens,
+            preserved_agent_names=preserved_agent_names,
+        )
         
         return ThinkingReActAgent(
             name=f"Player{player_id}",
             sys_prompt="",
             model=model,
-            formatter=OpenAIMultiAgentFormatter(),
+            formatter=formatter,
             memory=InMemoryMemory(),
             toolkit=Toolkit(),
         )
@@ -221,15 +247,39 @@ class AvalonRolloutWorkflow(BaseAgentscopeWorkflow):
         
         # Identify training agents
         self.training_indices = self._identify_training_agents()
+        
+        # Only enable console output for the first task (data_id="0" and rollout_id="0")
+        # Disable console output for all other tasks to reduce log noise
+        is_first_task = (self.data_id == "0" and self.rollout_id == "0")
+        for i in range(len(self.agents)):
+            if i in self.training_indices:
+                self.agents[i].set_console_output_enabled(is_first_task)
+            else:    
+                self.agents[i].set_console_output_enabled(False)
 
         # Run game
+        # Generate unique timestamp for parallel rollouts by including data_id and rollout_id
+        # This prevents multiple parallel rollouts from overwriting each other's logs
+        base_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        unique_timestamp = f"{base_timestamp}_d{self.data_id}_r{self.rollout_id}"
+        
+        # Get log_dir from game config and experiment_name from self.config
+        log_dir = game_config.get('log_dir', 'logs')
+        experiment_name = getattr(self.config.trainer, 'experiment_name', None) if hasattr(self.config, 'trainer') else None
+        
+        # If experiment_name is provided, append it to log_dir
+        if experiment_name:
+            # Sanitize experiment_name to avoid filesystem issues
+            experiment_name = str(experiment_name).replace('/', '_').replace('\\', '_')
+            log_dir = os.path.join(log_dir, experiment_name)
+        
         game = AvalonGame(
             agents=self.agents,
             config=config,
-            log_dir=game_config.get('log_dir', 'logs'),
+            log_dir=log_dir,
             language=game_config.get('language', 'en'),
             preset_roles=assigned_roles,
-            timestamp=datetime.now().strftime('%Y%m%d_%H%M%S'),
+            timestamp=unique_timestamp,
         )
         
         good_victory = await game.run() or False

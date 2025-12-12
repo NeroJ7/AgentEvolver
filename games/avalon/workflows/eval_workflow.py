@@ -3,6 +3,7 @@
 import asyncio
 import os
 import copy
+import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 from collections import defaultdict
@@ -52,8 +53,16 @@ class EvalAvalonWorkflow:
         Get model configuration for a role.
         Role-specific config overrides default_model config.
         """
+        if self.config_dict is None:
+            raise ValueError("config_dict is None. Please check your configuration file.")
+        
         default_model = self.config_dict.get('default_model', {})
         roles_config = self.config_dict.get('roles', {})
+        
+        if not isinstance(default_model, dict):
+            default_model = {}
+        if not isinstance(roles_config, dict):
+            roles_config = {}
         
         # Start with default_model config
         config = copy.deepcopy({**default_model})
@@ -77,10 +86,10 @@ class EvalAvalonWorkflow:
     def _create_agent(self, player_id: int, indexed_role: str, base_role: str):
         """Create an agent for a player."""
         from agentscope.model import OpenAIChatModel
-        from agentscope.formatter import OpenAIMultiAgentFormatter
         from agentscope.memory import InMemoryMemory
         from agentscope.tool import Toolkit
         from games.agents.thinking_react_agent import ThinkingReActAgent
+        from games.agents.secure_multi_agent_formatter import SecureMultiAgentFormatter
         
         model_config = self._get_model_config(indexed_role, base_role)
         
@@ -103,23 +112,40 @@ class EvalAvalonWorkflow:
             k: model_config[k] for k in ['temperature', 'max_tokens']
             if k in model_config
         }
+        # turn off auto-thinking for qwen3
+        generate_kwargs['extra_body'] = {
+                'enable_thinking': False,  # Required for non-streaming calls with DashScope
+            }
         if generate_kwargs:
             model_kwargs['generate_kwargs'] = generate_kwargs
         
         model = OpenAIChatModel(**model_kwargs)
+
+        # Prefer secure formatter to:
+        # - include thinking history safely (when present)
+        # - prevent agent-tag forgery in conversation history
+        formatter = SecureMultiAgentFormatter(
+            preserved_agent_names=["Moderator"],
+        )
         
         return ThinkingReActAgent(
             name=f"Player{player_id}",
             sys_prompt="",
             model=model,
-            formatter=OpenAIMultiAgentFormatter(),
+            formatter=formatter,
             memory=InMemoryMemory(),
             toolkit=Toolkit(),
+            # thinking_sys_prompt=""
         )
     
     async def _execute_async(self) -> bool:
         """Execute the game asynchronously."""
+        if self.config_dict is None:
+            raise ValueError("config_dict is None. Please check your configuration file.")
+        
         game_config = self.config_dict.get('game', {})
+        if not isinstance(game_config, dict):
+            game_config = {}
         
         # Setup environment and roles
         config = AvalonBasicConfig.from_num_players(game_config.get('num_players', 5))
@@ -135,13 +161,28 @@ class EvalAvalonWorkflow:
         ]
 
         # Run game
+        # Generate unique timestamp for parallel games
+        # This prevents multiple parallel games from overwriting each other's logs
+        base_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        unique_timestamp = f"{base_timestamp}_{uuid.uuid4().hex[:8]}"
+
+        # Get log_dir from game config and experiment_name from config
+        log_dir = game_config.get('log_dir', 'logs')
+        experiment_name = self.config_dict.get('experiment_name')
+        
+        # If experiment_name is provided, append it to log_dir
+        if experiment_name:
+            # Sanitize experiment_name to avoid filesystem issues
+            experiment_name = str(experiment_name).replace('/', '_').replace('\\', '_')
+            log_dir = os.path.join(log_dir, experiment_name)
+        
         game = AvalonGame(
             agents=self.agents,
             config=config,
-            log_dir=game_config.get('log_dir', 'logs'),
+            log_dir=log_dir,
             language=game_config.get('language', 'en'),
             preset_roles=assigned_roles,
-            timestamp=datetime.now().strftime('%Y%m%d_%H%M%S'),
+            timestamp=unique_timestamp,
         )
         
         good_victory = await game.run() or False
