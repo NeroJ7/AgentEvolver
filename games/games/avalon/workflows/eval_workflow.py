@@ -103,9 +103,17 @@ class EvalAvalonWorkflow:
         model_config = self._get_model_config(indexed_role, base_role)
         
         # Build model kwargs
+        # Get base_url from environment variable first, then from config
+        base_url = os.environ.get('OPENAI_BASE_URL') or model_config.get('url')
+        if not base_url:
+            raise ValueError(
+                "OPENAI_BASE_URL environment variable is required. "
+                "Please set it with: export OPENAI_BASE_URL=your_api_url"
+            )
+        
         model_kwargs = {
             'model_name': model_config['model_name'],
-            'client_args': {'base_url': model_config['url']},
+            'client_args': {'base_url': base_url},
         }
         
         # Add optional parameters
@@ -195,12 +203,6 @@ class EvalAvalonWorkflow:
             for i in range(len(assigned_roles))
         ]
 
-        for agent in self.agents:
-            if game_id == 0:
-                agent.set_console_output_enabled(True)
-            else:
-                agent.set_console_output_enabled(False)
-
         # Build log directory structure: logs/{experiment_name}/{timestamp}/game_id=0000
         # Get evaluation_timestamp and game_id from config (set by run_eval.py)
         # This ensures all games in the same evaluation run are organized under the same timestamp
@@ -208,6 +210,12 @@ class EvalAvalonWorkflow:
         evaluation_timestamp = self.config_dict.get('evaluation_timestamp')
         game_id = self.config_dict.get('game_id', 0)
         experiment_name = self.config_dict.get('experiment_name')
+
+        for agent in self.agents:
+            if game_id == 0:
+                agent.set_console_output_enabled(True)
+            else:
+                agent.set_console_output_enabled(False)
         
         # Generate timestamp if not provided (backward compatibility)
         if not evaluation_timestamp:

@@ -80,13 +80,18 @@ class EvalDiplomacyWorkflow:
         model_config = self._get_model_config(power_name)
 
         # Build model kwargs
+        # Get base_url from environment variable first, then from config
+        base_url = os.environ.get('OPENAI_BASE_URL') or model_config.get('url')
+        if not base_url:
+            raise ValueError(
+                "OPENAI_BASE_URL environment variable is required. "
+                "Please set it with: export OPENAI_BASE_URL=your_api_url"
+            )
+        
         model_kwargs = {
             'model_name': model_config.get('model_name', 'qwen-plus'),
+            'client_args': {'base_url': base_url},
         }
-
-        # Add client_args if url is specified
-        if 'url' in model_config:
-            model_kwargs['client_args'] = {'base_url': model_config['url']}
 
         # Add optional parameters
         # Get api_key from environment variable first, then from config

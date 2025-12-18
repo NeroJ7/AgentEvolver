@@ -141,9 +141,17 @@ class AvalonRolloutWorkflow(BaseAgentscopeWorkflow):
             model_config = self._get_model_config(indexed_role, base_role)
             
             # Build model kwargs (aligned with eval_workflow.py)
+            # Get base_url from environment variable first, then from config
+            base_url = os.environ.get('OPENAI_BASE_URL') or model_config.get('url')
+            if not base_url:
+                raise ValueError(
+                    "OPENAI_BASE_URL environment variable is required. "
+                    "Please set it with: export OPENAI_BASE_URL=your_api_url"
+                )
+            
             model_kwargs = {
                 'model_name': model_config['model_name'],
-                'client_args': {'base_url': model_config['url']},
+                'client_args': {'base_url': base_url},
             }
             
             # Add optional parameters
