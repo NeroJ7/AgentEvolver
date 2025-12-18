@@ -103,12 +103,12 @@ class EvalAvalonWorkflow:
         model_config = self._get_model_config(indexed_role, base_role)
         
         # Build model kwargs
-        # Get base_url from environment variable first, then from config
-        base_url = os.environ.get('OPENAI_BASE_URL') or model_config.get('url')
+        # Get base_url from config first, then from environment variable
+        base_url = model_config.get('url') or os.environ.get('OPENAI_BASE_URL')
         if not base_url:
             raise ValueError(
-                "OPENAI_BASE_URL environment variable is required. "
-                "Please set it with: export OPENAI_BASE_URL=your_api_url"
+                "base_url is required. Please set it in config (url) or "
+                "environment variable (OPENAI_BASE_URL)."
             )
         
         model_kwargs = {
@@ -117,10 +117,15 @@ class EvalAvalonWorkflow:
         }
         
         # Add optional parameters
-        # Get api_key from environment variable first, then from config
-        api_key = os.environ.get('OPENAI_API_KEY') or model_config.get('api_key')
+        # Get api_key from config first, then from environment variable
+        api_key = model_config.get('api_key') or os.environ.get('OPENAI_API_KEY')
         if api_key:
             model_kwargs['api_key'] = api_key
+        else:
+            raise ValueError(
+                "api_key is required. Please set it in config (api_key) or "
+                "environment variable (OPENAI_API_KEY)."
+            )
         if 'stream' in model_config:
             model_kwargs['stream'] = model_config['stream']
         
