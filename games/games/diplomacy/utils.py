@@ -185,7 +185,7 @@ async def save_game_logs(
             print(f"{Colors.WARNING}Failed to save memory for agent {agent.name}: {e}{Colors.ENDC}")
 
 # 提取消息解析逻辑为独立方法
-def parse_negotiation_messages(raw: str, power_name: str) -> List[Dict]:
+def parse_negotiation_messages(raw: str, power_name: str, power_names: List[str]) -> List[Dict]:
     """Parse negotiation messages from agent response."""
     raw = (raw or "").strip()
     parsed_msgs = []
@@ -263,7 +263,7 @@ def parse_negotiation_messages(raw: str, power_name: str) -> List[Dict]:
             content = m.group(2).strip()
             if not content:
                 continue
-            if target in self.game.powers.keys() or target in [p.upper() for p in self.game.powers.keys()]:
+            if target in power_names or target in [p.upper() for p in power_names]:
                 parsed_msgs.append({"message_type": "private", "recipient": target, "content": content})
     
     # (C) Fallback: plain text -> GLOBAL

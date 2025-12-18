@@ -281,22 +281,20 @@ class DiplomacyGame:
                 )
                 
                 msg = Msg(name="Moderator", content=negotiation_prompt, role="assistant")
-                for attempt in range(3):
-                    try:
-                        response_msg = await agent(msg)
-                        break
-                    except Exception as e:
-                        self._debug_print(f"{Colors.FAIL}{power_name} 谈判阶段发生错误 (尝试 {attempt+1}/3): {type(e).__name__}: {e}{Colors.ENDC}")
-                        import traceback
-                        traceback.print_exc()
-                        if attempt < 2:  # 不是最后一次尝试
-                            await asyncio.sleep(1 * (2 ** attempt))
-                        else:
-                            return []  # 返回空列表而不是抛出异常
+                try:
+                    response_msg = await asyncio.wait_for(
+                        agent(msg),
+                        timeout=300.0
+                    )
+                except Exception as e:
+                    self._debug_print(f"{Colors.FAIL}{power_name} 谈判阶段发生错误: {type(e).__name__}: {e}{Colors.ENDC}")
+                    import traceback
+                    traceback.print_exc()
+                    return []  # 返回空列表而不是抛出异常
                 
                 response_text = response_msg.get_text_content()
 
-                parsed_msgs = parse_negotiation_messages(raw=response_text, power_name=power_name)
+                parsed_msgs = parse_negotiation_messages(raw=response_text, power_name=power_name, power_names=list(self.game.powers.keys()))
 
                 # ---- Emit agent_messages (keep your original resolution logic) ----
                 for msg_data in parsed_msgs:
@@ -326,7 +324,26 @@ class DiplomacyGame:
                     continue
                 tasks.append(process_agent_negotiation(power_name, self.power_agent_map[power_name]))
             
-            results = await asyncio.gather(*tasks, return_exceptions=False)
+            try:
+                results = await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=360.0  # 整体超时（7个agent * 约50秒 + 缓冲）
+                )
+            except asyncio.TimeoutError:
+                self._debug_print(f"{Colors.FAIL}整体超时（360秒）！某些agent未响应{Colors.ENDC}")
+                # 处理超时情况 - 尝试获取已完成的结果
+                results = []
+                for task in tasks:
+                    try:
+                        # 检查任务是否已完成
+                        if hasattr(task, 'done') and task.done():
+                            result = await task
+                            results.append(result)
+                        else:
+                            results.append([])
+                    except Exception as e:
+                        self._debug_print(f"{Colors.FAIL}获取任务结果时出错: {e}{Colors.ENDC}")
+                        results.append([])
             
             for res in results:
                 for sender, recipient, content in res:
@@ -402,18 +419,16 @@ class DiplomacyGame:
             )
 
             msg = Msg(name="Moderator", content=order_prompt, role="user")
-            for attempt in range(3):
-                try:
-                    response_msg = await agent(msg)
-                    break
-                except Exception as e:
-                    self._debug_print(f"{Colors.FAIL}{power_name} 指令阶段发生错误 (尝试 {attempt+1}/3): {type(e).__name__}: {e}{Colors.ENDC}")
-                    import traceback
-                    traceback.print_exc()
-                    if attempt < 2:  # 不是最后一次尝试
-                        await asyncio.sleep(1 * (2 ** attempt))
-                    else:
-                        return []  # 返回空列表而不是抛出异常
+            try:
+                response_msg = await asyncio.wait_for(
+                    agent(msg),
+                    timeout=300.0
+                )
+            except Exception as e:
+                self._debug_print(f"{Colors.FAIL}{power_name} 指令阶段发生错误: {type(e).__name__}: {e}{Colors.ENDC}")
+                import traceback
+                traceback.print_exc()
+                return power_name, submitted_orders, []
             response_text = str(response_msg.content)
             phase_log["order_logs"][power_name] = response_text
 
@@ -449,9 +464,40 @@ class DiplomacyGame:
             else:
                 random_fallback_powers.append(power_name)
         
-        results = await asyncio.gather(*tasks, return_exceptions=False)
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True),
+                timeout=360.0  # 整体超时（7个agent * 约50秒 + 缓冲）
+            )
+        except asyncio.TimeoutError:
+            self._debug_print(f"{Colors.FAIL}指令阶段整体超时（360秒）！某些agent未响应{Colors.ENDC}")
+            # 处理超时情况 - 尝试获取已完成的结果
+            results = []
+            for task in tasks:
+                try:
+                    # 检查任务是否已完成
+                    if hasattr(task, 'done') and task.done():
+                        result = await task
+                        results.append(result)
+                    else:
+                        # 任务未完成，返回默认值（power_name, [], []）
+                        # 注意：这里无法获取power_name，所以需要修改逻辑
+                        results.append(None)  # 或者跳过
+                except Exception as e:
+                    self._debug_print(f"{Colors.FAIL}获取任务结果时出错: {e}{Colors.ENDC}")
+                    results.append(None)
         
-        for power_name, submitted_orders, translated_orders in results:
+        
+        for result in results:
+            if result is None:
+                continue  # 跳过超时的任务
+            if isinstance(result, Exception):
+                self._debug_print(f"{Colors.FAIL}Agent处理异常: {result}{Colors.ENDC}")
+                continue
+            if not isinstance(result, tuple) or len(result) != 3:
+                continue  # 跳过格式不正确的结果
+            
+            power_name, submitted_orders, translated_orders = result
             if submitted_orders:
                 self.game.set_orders(power_name, submitted_orders)
                 phase_log["orders"][power_name] = submitted_orders

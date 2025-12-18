@@ -167,9 +167,20 @@ class DiplomacyWorkflow(BaseAgentscopeWorkflow):
         # Calculate max_tokens for formatter (leave room for response)
         max_model_len = self.config.actor_rollout_ref.rollout.max_model_len
         response_length = self.config.actor_rollout_ref.rollout.response_length
+
+        # token计数可能有问题，添加安全边界
+        SAFETY_MARGIN = 100
         
-        max_tokens = max_model_len - response_length if max_model_len and response_length else None
-        
+        max_tokens = max_model_len - response_length - SAFETY_MARGIN if max_model_len and response_length else None
+
+
+        # Ensure max_tokens is valid
+        if max_tokens is not None and max_tokens <= 0:
+            logger.warning(
+                f"max_tokens calculated as {max_tokens}, setting to None. "
+                f"max_model_len={max_model_len}, response_length={response_length}"
+            )
+            max_tokens = None
         # Get preserved agent names from config (if available)
         # Default to preserving "Moderator" if not specified
         preserved_agent_names = ["Moderator"]
@@ -302,17 +313,20 @@ class DiplomacyWorkflow(BaseAgentscopeWorkflow):
             # Sanitize experiment_name to avoid filesystem issues
             experiment_name = str(experiment_name).replace('/', '_').replace('\\', '_')
             log_dir = os.path.join(log_dir, experiment_name)
+        
+        if unique_timestamp:
+            log_dir = os.path.join(log_dir, unique_timestamp)
 
         if self.data_id == "0" and self.rollout_id == "0":
             game_id = 0
         else:
             # 使用 data_id 和 rollout_id 组合生成唯一的非0 game_id
             try:
-                data_id_int = int(self.data_id) if self.data_id.isdigit() else 999
-                rollout_id_int = int(self.rollout_id) if self.rollout_id.isdigit() else 999
+                data_id_int = int(self.data_id) if self.data_id.isdigit() else 9999
+                rollout_id_int = int(self.rollout_id) if self.rollout_id.isdigit() else 9999
                 game_id = data_id_int * 1000 + rollout_id_int + 1  # 确保非0
             except (ValueError, AttributeError):
-                game_id = 999
+                game_id = 9999
         
         diplomacy_game = DiplomacyGame(
             agents=self.agents,
