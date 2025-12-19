@@ -144,7 +144,7 @@ class EvalAvalonWorkflow:
         model = OpenAIChatModel(**model_kwargs)
         
         # FIXME: model_name_for_tokenizer defaults to HuggingFace Qwen3-4B
-        model_name_for_tokenizer = "Qwen/Qwen3-4B"
+        model_name_for_tokenizer = "/mnt/data/yunpeng.zyp/models/Qwen3-4B"
         
         # Calculate max_tokens for formatter (leave room for response)
         # Follow the same logic as rollout_workflow.py
