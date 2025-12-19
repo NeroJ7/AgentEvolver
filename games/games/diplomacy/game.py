@@ -79,7 +79,10 @@ class DiplomacyGame:
         # 如果config中没有指定，则使用game.powers.keys()的默认顺序
         power_names = self.config.power_names if self.config.power_names else list(self.game.powers.keys())
         for i, power_name in enumerate(power_names):
-            logger.info(f"Assigning role to agent {i} ({get(self.agents[i].model.model_name,"Human")}): {power_name}")
+            if hasattr(self.agents[i], 'model') and self.agents[i].model is not None:
+                logger.info(f"Assigning role to agent {i} {self.agents[i].model.model_name}: {power_name}")
+            else:
+                logger.info(f"Assigning role to agent {i} Human: {power_name}")
 
             if i < len(self.agents):
                 self.agents[i].power_name = power_name 
