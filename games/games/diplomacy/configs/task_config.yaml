@@ -12,15 +12,17 @@ defaults:
 #   seed: 12345     # Override default seed
 
 # Power-specific configuration (optional)
-# If url or model_name are not specified for a power, all corresponding parameters 
-# are taken from default_model. If specified, they override the default values.
-# temperature, max_tokens, stream, trainable are optional - if not specified, use default_model configuration
-# models:
+# Each power can override default_role settings by specifying model and/or agent sub-sections.
+# If not specified, values are inherited from default_role.
+# See default_config.yaml for detailed documentation and examples.
+# roles:
 #   ENGLAND:
-#     model_name: qwen-max
-#     # temperature: 0.7  # Optional, uses default_model configuration
-#     # max_tokens: 2048  # Optional
+#     model:
+#       model_name: qwen-max
+#       # temperature: 0.7  # Optional, uses default_role.model configuration
+#       # max_tokens: 2048  # Optional
 #   
 #   FRANCE:
-#     url: http://localhost:8000/v1  # VLLM server URL
-#     model_name: local_model
+#     model:
+#       url: http://localhost:8000/v1  # VLLM server URL
+#       model_name: local_model

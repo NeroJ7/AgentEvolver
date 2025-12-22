@@ -4,16 +4,24 @@ defaults:
   - default_config
   - _self_
 
-# Model-specific configuration for training
-# Only models with trainable: true will be included in the training tasks
+# Power-specific configuration for training
+# Only powers with trainable: true will be included in the training tasks
 # For Diplomacy, you can specify which power(s) to train
+# You can override model and agent settings here if needed
 roles:
   # Example: train ENGLAND
   ENGLAND:
     trainable: true
-  #   model_name: qwen-plus
-  #   temperature: 0.7
-  #   max_tokens: 2048
+    # You can override model settings here if needed
+    # model:
+    #   model_name: qwen-plus
+    #   temperature: 0.7
+    #   max_tokens: 2048
+    # You can override agent settings here if needed
+    # agent:
+    #   type: ThinkingReActAgent
+    #   kwargs:
+    #     sys_prompt: ""
 
 # Game configuration (inherited from default_config, can be overridden here)
 # game:
