@@ -54,15 +54,11 @@ class DiplomacyGame:
         self.game_id = game_id
         
         # Initialize Game
-<<<<<<< HEAD
-        self._debug_print(f"{Colors.HEADER}=== Initialize Diplomacy (Map: {self.config.map_name}, Seed: {self.config.seed}) ==={Colors.ENDC}")
-=======
         if self.is_zh:
             init_msg = f"{Colors.HEADER}=== 初始化 Diplomacy (Map: {self.config.map_name}, Seed: {self.config.seed}) ==={Colors.ENDC}"
         else:
             init_msg = f"{Colors.HEADER}=== Initializing Diplomacy (Map: {self.config.map_name}, Seed: {self.config.seed}) ==={Colors.ENDC}"
         self._debug_print(init_msg)
->>>>>>> origin/dev/game_main
         self.game = Game(map_name=self.config.map_name, seed=self.config.seed)
         
         # Initialize Logging
@@ -97,14 +93,10 @@ class DiplomacyGame:
                 self.agents[i].power_name = power_name 
                 self.power_agent_map[power_name] = self.agents[i]
             else:
-<<<<<<< HEAD
-                self._debug_print(f"  {power_name} has no Agent assigned (will act randomly)")
-=======
                 if self.is_zh:
                     self._debug_print(f"  {power_name} 没有分配 Agent (将随机行动)")
                 else:
                     self._debug_print(f"  {power_name} has no assigned Agent (will act randomly)")
->>>>>>> origin/dev/game_main
     
     # Helper function for debug printing
     def _debug_print(self, *args, **kwargs):
@@ -224,16 +216,12 @@ class DiplomacyGame:
                 break
 
             current_phase = self.game.get_current_phase()
-<<<<<<< HEAD
-            self._debug_print(f"\n{Colors.BOLD}{Colors.OKCYAN}--- Current Phase: {current_phase} (Round {phases_processed + 1}) ---{Colors.ENDC}")
-=======
             # Display phase info based on language
             if self.is_zh:
                 phase_msg = f"\n{Colors.BOLD}{Colors.OKCYAN}--- 当前阶段: {current_phase} (第 {phases_processed + 1} 轮) ---{Colors.ENDC}"
             else:
                 phase_msg = f"\n{Colors.BOLD}{Colors.OKCYAN}--- Current Phase: {current_phase} (Round {phases_processed + 1}) ---{Colors.ENDC}"
             self._debug_print(phase_msg)
->>>>>>> origin/dev/game_main
 
             await self._broadcast(f"--- Phase: {current_phase} (Round {phases_processed + 1}) ---")
 
@@ -268,16 +256,12 @@ class DiplomacyGame:
 
             sc_counts = {p: len(power.centers) for p, power in self.game.powers.items() if not power.is_eliminated()}
             phase_log["sc_counts"] = sc_counts
-<<<<<<< HEAD
-            self._debug_print(f"{Colors.HEADER}Supply Centers: {sc_counts}{Colors.ENDC}")
-=======
             # Display supply centers based on language
             if self.is_zh:
                 sc_msg = f"{Colors.HEADER}各方补给中心: {sc_counts}{Colors.ENDC}"
             else:
                 sc_msg = f"{Colors.HEADER}Supply Centers: {sc_counts}{Colors.ENDC}"
             self._debug_print(sc_msg)
->>>>>>> origin/dev/game_main
 
             await self._render_map(f"result_{current_phase}")
             if self.state_manager:
@@ -287,10 +271,6 @@ class DiplomacyGame:
             if self.game_log_dir:
                 await save_game_logs(self.agents, self.game, self.game_log, self.game_log_dir)
 
-<<<<<<< HEAD
-        self._debug_print(f"\n{Colors.HEADER}=== Game Over ==={Colors.ENDC}")
-        self._debug_print(f"{Colors.HEADER}Result: {self.game.outcome}{Colors.ENDC}")
-=======
         # Display game end based on language
         if self.is_zh:
             self._debug_print(f"\n{Colors.HEADER}=== 游戏结束 ==={Colors.ENDC}")
@@ -298,7 +278,6 @@ class DiplomacyGame:
         else:
             self._debug_print(f"\n{Colors.HEADER}=== Game Over ==={Colors.ENDC}")
             self._debug_print(f"{Colors.HEADER}Outcome: {self.game.outcome}{Colors.ENDC}")
->>>>>>> origin/dev/game_main
 
         await self._broadcast(f"Game Over. Outcome: {self.game.outcome}")
 
@@ -312,11 +291,6 @@ class DiplomacyGame:
         return self.game
 
     async def _handle_negotiation_phase(self, current_phase, round_num, phase_log):
-<<<<<<< HEAD
-        self._debug_print(f"{Colors.OKBLUE}--- Start Negotiation Phase ({self.config.negotiation_rounds} rounds) ---{Colors.ENDC}")
-        for round_idx in range(self.config.negotiation_rounds):
-            self._debug_print(f"{Colors.OKBLUE}  Round {round_idx + 1} Negotiation{Colors.ENDC}")
-=======
         # Display negotiation phase start based on language
         if self.is_zh:
             self._debug_print(f"{Colors.OKBLUE}--- 开始谈判阶段 ({self.config.negotiation_rounds} 轮) ---{Colors.ENDC}")
@@ -327,7 +301,6 @@ class DiplomacyGame:
                 self._debug_print(f"{Colors.OKBLUE}  第{round_idx + 1}轮谈判{Colors.ENDC}")
             else:
                 self._debug_print(f"{Colors.OKBLUE}  Round {round_idx + 1} Negotiation{Colors.ENDC}")
->>>>>>> origin/dev/game_main
             
             round_negotiation_log = {"round_idx": round_idx + 1, "messages": []}
             round_messages = [] 
@@ -421,14 +394,10 @@ class DiplomacyGame:
                     await agent.observe(Msg(name=sender, content=msg_text, role="assistant"))
 
     async def _handle_order_phase(self, current_phase, phase_log):
-<<<<<<< HEAD
-        self._debug_print(f"{Colors.OKBLUE}--- Start Writing Orders ---{Colors.ENDC}")
-=======
         if self.is_zh:
             self._debug_print(f"{Colors.OKBLUE}--- 开始书写命令 ---{Colors.ENDC}")
         else:
             self._debug_print(f"{Colors.OKBLUE}--- Starting Order Phase ---{Colors.ENDC}")
->>>>>>> origin/dev/game_main
         possible_orders = self.game.get_all_possible_orders()
         
         async def process_agent_orders(power_name, power, agent):
