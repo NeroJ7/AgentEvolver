@@ -81,7 +81,7 @@ AgentEvolver provides a built-in evaluation framework to **systematically compar
 </tr>
 <tr>
 <td style="padding: 10px; text-align: center; border: 1px solid #ddd;">🥈</td>
-<td style="padding: 10px; text-align: center; border: 1px solid #ddd;"><strong>qwen3-235b-a22</strong></td>
+<td style="padding: 10px; text-align: center; border: 1px solid #ddd;"><strong>qwen3-235b-a22b</strong></td>
 <td style="padding: 10px; text-align: center; border: 1px solid #ddd;"><strong>51.5%</strong></td>
 <td style="padding: 10px; text-align: center; border: 1px solid #ddd;">165</td>
 <td style="padding: 10px; text-align: center; border: 1px solid #ddd;"><strong>42.4%</strong></td>
@@ -170,7 +170,7 @@ AgentEvolver is designed to support **end-to-end training of AI agents in social
 - Training agents directly within game environments  
 - Support for reinforcement learning–based methods (e.g., GRPO)  
 
-> 📈 *Training curves, learning dynamics, and performance evolution plots will be added here.*
+<img src="../docs/img/games/training_curve.png" alt="Training Curve" width="80%">
 
 ---
 
@@ -211,22 +211,24 @@ From the web interface you can:
 
 ### Run a Model Evaluation
 
-Example command:
+```bash
+python games/evaluation/run_eval.py \
+    --game avalon \
+    --config games/games/avalon/configs/task_config.yaml \
+    --num-games 10 \
+    --max-workers 5
+```
 
-    python games/evaluation/run_eval.py \
-        --game avalon \
-        --config games/games/avalon/configs/task_config.yaml \
-        --num-games 10
+**Options:** `--game` / `-g` (required), `--config` / `-c` (required), `--num-games` / `-n` (default: 1), `--max-workers` / `-w` (default: 10), `--experiment-name`
 
-To use local models, see introduction in games/evaluation/run_eval.py.
+**Local VLLM models:** Start server with `python games/evaluation/start_vllm.py`, then set `default_model.url: http://localhost:8000/v1` in config.
 
-After completion, a summary similar to the following will be displayed:
+**Output:** The evaluation results are displayed in formatted tables with:
+- **Game-level statistics**: Aggregated metrics (e.g., win rates, game duration) with mean, max, and min values across all games
+- **Role-level statistics**: Performance metrics broken down by role (e.g., Merlin, Servant, Assassin, Minion for Avalon) with mean, max, and min values
+- **Summary**: Total number of games completed and overall statistics
 
-    Evaluation Results Summary – AVALON
-    total_games: 10
-    successful_games: 10
-    good_victory_mean: 0.6000
-    ...
+For large-scale evaluations with multiple models, fair model assignment, and Elo-based rankings, see the [Arena Leaderboard documentation](games/evaluation/leaderboard/README.md).
 
 ---
 

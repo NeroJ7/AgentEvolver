@@ -48,7 +48,9 @@ def create_arena_evaluator(game_name: str, leaderboard_db: LeaderboardDB):
             
             # Pass game counts for fair model assignment
             # Update counts before each game to ensure fairness
-            config_dict['_model_game_counts'] = leaderboard_db.get_model_game_counts()
+            # Pass arena models to ensure all are included (new models get count 0)
+            arena_models = config_dict.get('arena', {}).get('models', [])
+            config_dict['_model_game_counts'] = leaderboard_db.get_model_game_counts(arena_models)
             
             workflow = create_arena_workflow(game_name, config_dict)
             return workflow.execute()
@@ -136,7 +138,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run 200 Avalon arena games (creates new leaderboard)
+  # Run 200 Avalon arena games
   python games/evaluation/leaderboard/run_arena.py \\
       --game avalon \\
       --config games/games/avalon/configs/arena_config.yaml \\
@@ -149,13 +151,6 @@ Examples:
       --config games/games/diplomacy/configs/arena_config.yaml \\
       --num-games 100 \\
       --max-workers 10
-  
-  # Continue running games to update existing leaderboard
-  python games/evaluation/leaderboard/run_arena.py \\
-      --game avalon \\
-      --config games/games/avalon/configs/arena_config.yaml \\
-      --num-games 50 \\
-      --continue-leaderboard
         """
     )
     
@@ -198,15 +193,10 @@ Examples:
         help="Experiment name for organizing logs",
     )
     parser.add_argument(
-        "--continue-leaderboard",
-        action="store_true",
-        help="Continue updating existing leaderboard (preserves Elo scores)",
-    )
-    parser.add_argument(
         "--leaderboard-db",
         type=str,
-        default="games/evaluation/leaderboard/leaderboard.json",
-        help="Path to leaderboard database file",
+        default=None,
+        help="Path to leaderboard database file (default: games/evaluation/leaderboard/leaderboard_{game_name}.json)",
     )
     parser.add_argument(
         "--api-call-interval",
@@ -216,6 +206,10 @@ Examples:
     )
     
     args = parser.parse_args()
+    
+    # Set default leaderboard path based on game name if not specified
+    if args.leaderboard_db is None:
+        args.leaderboard_db = f"games/evaluation/leaderboard/leaderboard_{args.game}.json"
     
     # Initialize rate limiter if specified
     if args.api_call_interval > 0.0:
@@ -257,7 +251,8 @@ Examples:
         print("Error: arena.models must be a non-empty list", file=sys.stderr)
         sys.exit(1)
     
-    # Initialize leaderboard database
+    # Initialize leaderboard database (automatically loads existing data if available)
+    # Default path is set in argument parsing: games/evaluation/leaderboard/leaderboard_{game_name}.json
     leaderboard_db = LeaderboardDB(args.leaderboard_db)
     
     # Update Elo settings from config if provided
@@ -266,16 +261,16 @@ Examples:
     if 'elo_k' in arena_config:
         leaderboard_db.data['elo_k'] = arena_config['elo_k']
     
-    # If continuing, ensure all models in config are in database
-    if args.continue_leaderboard:
-        existing_models = leaderboard_db.get_all_models()
-        print(f"[arena] Continuing existing leaderboard with {len(existing_models)} models: {existing_models}")
-        for model in arena_config['models']:
-            leaderboard_db.add_model(model)
+    # Always load existing leaderboard data and add any new models
+    existing_models = leaderboard_db.get_all_models()
+    if existing_models:
+        print(f"[arena] Loaded existing leaderboard with {len(existing_models)} models: {existing_models}")
     else:
-        # Add all models to database (new or existing)
-        for model in arena_config['models']:
-            leaderboard_db.add_model(model)
+        print(f"[arena] Creating new leaderboard")
+    
+    # Add all models to database (new models will be added, existing ones preserved)
+    for model in arena_config['models']:
+        leaderboard_db.add_model(model)
     
     # Set experiment name
     if args.experiment_name:

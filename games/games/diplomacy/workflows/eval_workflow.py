@@ -185,10 +185,22 @@ class EvalDiplomacyWorkflow:
             'roles': [],  # List of scores in power_names order
         }
 
+        # Calculate score using same logic as rollout_workflow
+        # 18 supply centers needed to win, scale from 0 to 1
         for power_name, power in game.powers.items():
+            supply_centers = len(power.centers)
+            is_eliminated = power.is_eliminated()
+            
+            # Normalize score: 0.0 if eliminated, otherwise min(centers / 18.0, 1.0)
+            if is_eliminated:
+                normalized_score = 0.0
+            else:
+                normalized_score = min(supply_centers / 18.0, 1.0)
+            
             results['roles'].append({
                 'role_name': power_name,
-                'score': len(power.centers),
+                'score': normalized_score,
+                'supply_centers': supply_centers,
             })
 
         # Clean up httpx client resources in agent LLM clients

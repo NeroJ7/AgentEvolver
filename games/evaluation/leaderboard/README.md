@@ -1,47 +1,34 @@
 # Arena Leaderboard
 
-Arena leaderboard system for multi-game evaluation with persistent storage, incremental updates, and fair model assignment.
+Multi-game evaluation system with persistent storage, fair model assignment, and Elo-based rankings.
 
 ## Features
 
-- **Fair Model Assignment**: Weighted random assignment ensures balanced game distribution across models
-- **Elo Rating System**: Tracks model performance using pairwise Elo ratings
-- **Persistent Storage**: Thread-safe JSON database for leaderboard data
-- **Incremental Updates**: Add new models or continue running games without losing existing scores
-- **Role-based Statistics**: Track win rates for each model in different roles (game-specific)
-- **Game Count Balance**: Monitors and reports fairness of game distribution across models
-- **Multi-Game Support**: Supports Avalon and Diplomacy (with lazy loading for extensibility)
-- **Real-time Updates**: Leaderboard updates after each game completion
+- **Fair Assignment**: Weighted random selection balances game distribution across models
+- **Elo Ratings**: Pairwise Elo ratings track model performance
+- **Persistent Storage**: Thread-safe JSON database with incremental updates
+- **Multi-Game Support**: Avalon and Diplomacy (extensible via lazy loading)
+- **Role Statistics**: Win rates tracked per role (game-specific)
+- **API Rate Limiting**: Configurable delays to prevent API overload
 
-## Files
-
-- `arena_workflow.py`: Arena workflow that assigns models to roles with fairness consideration
-- `run_arena.py`: Main entry point for running arena evaluation
-- `leaderboard.py`: Leaderboard calculation and display utilities
-- `leaderboard_db.py`: Thread-safe persistent storage for leaderboard data
-- `test_arena.py`: Test script for leaderboard database functionality
-
-## Usage
+## Quick Start
 
 ### Supported Games
 
-Currently supported games:
-- **avalon**: The Resistance: Avalon
-- **diplomacy**: Diplomacy (lazy-loaded)
+- **Avalon**: 5 players (Merlin, Servant, Assassin, Minion)
+- **Diplomacy**: 7 players (one per power: AUSTRIA, ENGLAND, FRANCE, GERMANY, ITALY, RUSSIA, TURKEY)
 
-### First Run (Create New Leaderboard)
+### Run Evaluation
 
-**Avalon:**
 ```bash
+# Avalon
 python games/evaluation/leaderboard/run_arena.py \
     --game avalon \
     --config games/games/avalon/configs/arena_config.yaml \
     --num-games 200 \
     --max-workers 10
-```
 
-**Diplomacy:**
-```bash
+# Diplomacy
 python games/evaluation/leaderboard/run_arena.py \
     --game diplomacy \
     --config games/games/diplomacy/configs/arena_config.yaml \
@@ -49,146 +36,166 @@ python games/evaluation/leaderboard/run_arena.py \
     --max-workers 10
 ```
 
-### Add New Models and Continue
+### Continue or Add Models
 
-1. Edit the config file to add new models:
+The system automatically loads existing leaderboard data. To add models or continue:
+
+1. Add models to config:
 ```yaml
 arena:
   models:
     - qwen-plus
-    - qwen-max
-    - qwen2.5-14b
-    - qwen2.5-32b
-    - new-model-name  # New model
+    - qwen3-max
+    - new-model-name  # Add here
 ```
 
-2. Run with `--continue-leaderboard` flag:
+2. Run evaluation (existing data is preserved):
 ```bash
 python games/evaluation/leaderboard/run_arena.py \
     --game avalon \
     --config games/games/avalon/configs/arena_config.yaml \
-    --num-games 100 \
-    --continue-leaderboard
+    --num-games 100
 ```
 
-### Continue Running More Games
+## Command-Line Options
+
+| Option | Short | Default | Description |
+|--------|-------|----------|-------------|
+| `--game` | `-g` | *required* | Game name (`avalon` or `diplomacy`) |
+| `--config` | `-c` | *required* | Path to arena config YAML |
+| `--num-games` | `-n` | 200 | Number of games to run |
+| `--max-workers` | `-w` | 10 | Maximum parallel workers |
+| `--experiment-name` | | `arena_leaderboard_{game}` | Experiment name for logs |
+| `--leaderboard-db` | | `games/evaluation/leaderboard/leaderboard_{game}.json` | Database file path |
+| `--api-call-interval` | | 0.0 | Seconds between API calls (0.0 = no limit) |
+
+### Rate Limiting
+
+To prevent API rate limit errors with high concurrency:
 
 ```bash
-python games/evaluation/leaderboard/run_arena.py \
-    --game avalon \
-    --config games/games/avalon/configs/arena_config.yaml \
-    --num-games 50 \
-    --continue-leaderboard
+--api-call-interval 0.5  # Recommended: 0.5-0.6s for 10 workers
 ```
 
-### Rate Limiting to Prevent API Overload
-
-If you're running many concurrent games and experiencing API rate limit errors, you can add a delay between API calls:
-
-```bash
-python games/evaluation/leaderboard/run_arena.py \
-    --game avalon \
-    --config games/games/avalon/configs/arena_config.yaml \
-    --num-games 200 \
-    --max-workers 10 \
-    --api-call-interval 0.5  # Wait 0.5 seconds between each API call
-```
-
-**API Rate Limits:**
-- **qwen-max**: RPM = 1200 (20 requests/second)
-  - With 5 workers: recommended `0.3-0.4` seconds
-  - With 10 workers: recommended `0.5-0.6` seconds
-  - With 20 workers: recommended `1.0-1.2` seconds
-
-**Calculation formula:**
-- Minimum interval = `max_workers / (RPM / 60)` with safety margin
-- For qwen-max (RPM=1200): `interval = max_workers / 20 * 1.2` (20% safety margin)
-
-This will slow down the evaluation but prevent the API from being overwhelmed. Recommended values:
-- `0.3-0.4` seconds for moderate concurrency (5 workers)
-- `0.5-0.6` seconds for high concurrency (10 workers)
-- `1.0-1.2` seconds for very high concurrency (20 workers)
-- `0.0` (default) for no rate limiting (fastest but may hit API limits)
-
-### Command-Line Arguments
-
-- `--game` / `-g` (required): Game to evaluate (`avalon` or `diplomacy`)
-- `--config` / `-c` (required): Path to arena config YAML file
-- `--num-games` / `-n` (default: 200): Number of games to run
-- `--max-workers` / `-w` (default: 10): Maximum number of parallel workers
-- `--experiment-name`: Optional experiment name for organizing logs
-- `--continue-leaderboard`: Continue updating existing leaderboard (preserves Elo scores)
-- `--leaderboard-db`: Path to leaderboard database file (default: `games/evaluation/leaderboard/leaderboard.json`)
-- `--api-call-interval`: Minimum seconds between API calls to prevent rate limiting (default: 0.0, no limit). For qwen-max (RPM=1200): recommended 0.5-0.6 seconds with 10 workers.
+**Recommended intervals** (for qwen-max, RPM=1200):
+- 5 workers: `0.3-0.4s`
+- 10 workers: `0.5-0.6s`
+- 20 workers: `1.0-1.2s`
 
 ## Configuration
 
-Create a config file (e.g., `arena_config.yaml`):
+Config files inherit from `default_config.yaml` using Hydra. Key sections:
 
+### Arena Section
 ```yaml
-defaults:
-  - default_config
-  - _self_
-
 arena:
-  models:
-    - qwen-plus
-    - qwen-max
-    - qwen2.5-14b
-    - qwen2.5-32b
-  seed: 42
-  elo_initial: 1500
-  elo_k: 32
-
-game:
-  name: avalon
-  num_players: 5
-  language: en
-  log_dir: games/logs/arena
-
-default_model:
-  url:  # Will be read from OPENAI_BASE_URL
-  temperature: 0.7
-  max_tokens: 2048
-  stream: false
+  models: [qwen-plus, qwen3-max, ...]  # Models to evaluate
+  seed: 42                              # Random seed (offset by game_id)
+  elo_initial: 1500                    # Initial Elo rating
+  elo_k: 32                            # Elo K-factor
 ```
+
+### Game Section
+```yaml
+game:
+  name: avalon                          # or diplomacy
+  num_players: 5                        # Avalon: 5, Diplomacy: 7
+  language: en                         # en or zh
+  log_dir: games/logs/arena
+  # Diplomacy-specific:
+  # power_names: [AUSTRIA, ENGLAND, ...]
+  # max_phases: 20
+  # negotiation_rounds: 3
+```
+
+### Default Role Section
+```yaml
+default_role:
+  trainable: false
+  act_by_user: false
+  model:
+    url:  # From OPENAI_BASE_URL
+    temperature: 0.7
+    max_tokens: 2048
+  agent:
+    type: ThinkingReActAgent
+    kwargs: {}  # Diplomacy: add memory config
+```
+
+See `games/games/{game}/configs/arena_config.yaml` for complete examples.
 
 ## Leaderboard Data
 
-Leaderboard data is stored in `games/evaluation/leaderboard/leaderboard.json` by default. The file contains:
+**Storage**: `games/evaluation/leaderboard/leaderboard_{game_name}.json`
 
-- Model Elo ratings (initial and current)
-- Total games and wins per model
-- Role-specific statistics (wins and games per role)
+**Contents**:
+- Model statistics (Elo, games, wins, role-specific stats)
 - Game history with timestamps
-- Elo configuration (initial rating and K-factor)
-- Balance statistics (min, max, mean, std, balance_ratio)
+- Elo configuration (initial rating, K-factor)
+- Balance statistics (computed on-the-fly)
 
-The database is thread-safe and updates incrementally after each game completion.
+**Features**:
+- Thread-safe incremental updates
+- Automatic loading on startup
+- Supports adding models mid-evaluation
+- Resumable after interruption
 
-## Output
+## Output Format
 
 The leaderboard displays:
-- Model rankings by Elo (sorted descending)
-- Overall win rate percentage
-- Total games played per model
-- Win rate by role (game-specific roles, e.g., Merlin, Servant, Assassin, Minion for Avalon)
-- Average win rate across roles
-- Column and row averages
-- Game count balance statistics (with warnings if unbalanced)
-- Models with insufficient games are marked with `*` (if < 80% of max)
+- Rankings by Elo (descending)
+- Overall win rate and total games per model
+- Role-specific win rates (e.g., Merlin, Servant for Avalon)
+- Row/column averages
+- Balance statistics (warnings if ratio < 0.8)
+- Models with insufficient games marked with `*` (< 80% of max)
+
+## How It Works
 
 ### Fair Model Assignment
-
-The system uses weighted random selection to ensure fair distribution:
-- Models with fewer games get higher selection probability
-- This helps balance game counts across all models
-- Balance ratio is displayed and monitored (ratio < 0.8 triggers warnings)
+- Weighted selection: `weight = 1 / (game_count + 1)`
+- Ensures diversity (no duplicates when possible)
+- Real-time game count updates for fairness
+- Balance ratio monitored (warnings if < 0.8)
 
 ### Elo Rating System
+- **Formula**: `new_elo = old_elo + k * (actual_score - expected_score)`
+- **Expected score**: `1 / (1 + 10^((opponent_elo - my_elo) / 400))`
+- Pairwise updates for all model pairs in each game
+- Handles binary (0/1) and continuous scores via normalization
 
-- Initial Elo: 1500 (configurable via `elo_initial`)
-- K-factor: 32 (configurable via `elo_k`)
-- Pairwise comparison: Elo updates between all model pairs in each game
-- Score normalization: Handles both binary (0/1) and continuous scores
+### Thread Safety
+All database operations use locks, enabling:
+- Concurrent game execution
+- Safe incremental updates
+- Real-time statistics without corruption
 
+## Workflow
+
+1. Load/create leaderboard database
+2. Register models from config (new models get initial Elo)
+3. For each game:
+   - Query current game counts
+   - Calculate weights (fewer games = higher weight)
+   - Assign models to roles (weighted random, ensures diversity)
+   - Execute game
+   - Update statistics and Elo ratings
+   - Save database (thread-safe)
+4. Display final leaderboard
+
+## Testing
+
+```bash
+python games/evaluation/leaderboard/test_arena.py
+```
+
+Tests database operations, Elo calculations, and leaderboard generation.
+
+## Files
+
+- `run_arena.py`: Main entry point
+- `arena_workflow.py`: Model assignment and game execution
+- `leaderboard_db.py`: Thread-safe persistent storage
+- `leaderboard.py`: Calculation and display utilities
+- `rate_limiter.py`: API rate limiting
+- `test_arena.py`: Test suite

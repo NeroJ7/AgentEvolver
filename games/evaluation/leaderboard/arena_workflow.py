@@ -2,9 +2,8 @@
 """Arena workflows that randomly assign models to roles for different games."""
 import random
 import copy
-from typing import Dict, Any, Type
-
-from games.games.avalon.workflows.eval_workflow import EvalAvalonWorkflow
+from typing import Dict, Any, Type, List, Union
+from abc import ABC, abstractmethod
 
 
 # Arena workflow registry
@@ -19,325 +18,215 @@ def register_arena_workflow(game_name: str):
     return decorator
 
 
-class ArenaAvalonWorkflow(EvalAvalonWorkflow):
-    """Arena workflow that randomly assigns models to roles each game."""
+class BaseArenaWorkflow(ABC):
+    """Base class for arena workflows with model assignment logic."""
     
-    def __init__(self, config_dict: Dict[str, Any]):
-        """Initialize arena workflow.
-        
-        Args:
-            config_dict: Configuration dictionary. Must contain 'arena' key with:
-                - models: List of model names to use
-                - seed: Optional random seed for reproducibility
-        """
-        # Extract arena config
+    def _initialize_arena(self, config_dict: Dict[str, Any]):
+        """Initialize arena configuration and assign models."""
         arena_config = config_dict.get('arena', {})
         self.arena_models = arena_config.get('models', [])
         if not self.arena_models:
             raise ValueError("arena.models must be specified in config")
         
-        # Set random seed if provided
-        seed = arena_config.get('seed')
-        if seed is not None:
+        if seed := arena_config.get('seed'):
             random.seed(seed)
         
-        # Store original config and modify roles for this game
         self.original_config = copy.deepcopy(config_dict)
         self._assign_models_to_roles(config_dict)
-        
-        # Initialize parent class with modified config
-        super().__init__(config_dict)
     
     def _assign_models_to_roles(self, config_dict: Dict[str, Any]):
-        """Assign models to roles with fairness consideration and diversity.
-        
-        This modifies config_dict['roles'] to map role names to models.
-        The actual role names will be determined at game start by AvalonGameEnvironment.
-        We pre-assign models to indexed role positions (player_0, player_1, etc.)
-        
-        Prioritizes model diversity (no duplicates when possible):
-        - If we have enough models, uses sampling without replacement
-        - If we need more models than available, fills remaining slots with weighted random selection
-        - Uses weighted random selection to ensure fair distribution:
-          * Models with fewer games get higher weight
-          * This helps balance game counts across models
-        """
-        # Get number of players
-        game_config = config_dict.get('game', {})
-        num_players = game_config.get('num_players', 5)
-        
-        # Get game counts for fairness (if available from leaderboard_db)
+        """Assign models to roles with fairness and diversity."""
+        role_names = self._get_role_names(config_dict)
         game_counts = config_dict.get('_model_game_counts', {})
         
-        # Calculate weights: inverse of game count (models with fewer games get higher weight)
-        # Add 1 to avoid division by zero
-        weights = [1.0 / (game_counts.get(model, 0) + 1) for model in self.arena_models]
+        # Calculate weights: fewer games = higher weight (ensures fairness)
+        weights = [1.0 / (game_counts.get(m, 0) + 1) for m in self.arena_models]
+        total = sum(weights)
+        weights = [w / total for w in weights] if total > 0 else [1.0 / len(self.arena_models)] * len(self.arena_models)
         
-        # Normalize weights
-        total_weight = sum(weights)
-        if total_weight > 0:
-            weights = [w / total_weight for w in weights]
-        else:
-            # Equal weights if no game counts available
-            weights = [1.0 / len(self.arena_models)] * len(self.arena_models)
+        assigned_models = self._select_models(len(role_names), weights)
         
-        # Prioritize diversity: use sampling without replacement when possible
-        if len(self.arena_models) >= num_players:
-            # We have enough models, use weighted sampling without replacement
-            # Create a list of (model, weight) pairs and sort by weight (descending)
-            model_weight_pairs = list(zip(self.arena_models, weights))
-            # Shuffle to add randomness while respecting weights
-            random.shuffle(model_weight_pairs)
-            # Sort by weight (descending) to prioritize models with fewer games
-            model_weight_pairs.sort(key=lambda x: x[1], reverse=True)
-            # Take first num_players models (diverse selection)
-            assigned_models = [model for model, _ in model_weight_pairs[:num_players]]
-            # Shuffle the assignment to randomize positions
-            random.shuffle(assigned_models)
-        else:
-            # Not enough models, first assign all unique models, then fill remaining
-            assigned_models = list(self.arena_models)  # Start with all models
-            remaining = num_players - len(assigned_models)
-            if remaining > 0:
-                # Fill remaining slots with weighted random selection (with replacement)
-                additional = random.choices(self.arena_models, weights=weights, k=remaining)
-                assigned_models.extend(additional)
-                # Shuffle to randomize positions
-                random.shuffle(assigned_models)
-        
-        # Create roles config mapping
-        # We'll map to indexed roles that will be created by RoleManager
-        # The actual role names (Merlin, Servant, etc.) are assigned randomly by the game
-        # So we map to player positions that will be converted to indexed roles
-        roles_config = {}
-        
-        # Map models to player positions
-        # The role names will be determined at runtime, but we can use a pattern
-        # that matches how RoleManager creates indexed roles
-        for i, model in enumerate(assigned_models):
-            # Store model assignment in a way that can be retrieved later
-            # We'll use player position as key, and the actual role matching
-            # will happen in _get_model_config override
-            roles_config[f'player_{i}'] = {'model_name': model}
-        
-        # Also store the assignment for later retrieval
-        config_dict['_arena_model_assignment'] = assigned_models
-        
-        # Update roles config
+        # Update config
+        config_dict['_arena_model_assignment'] = self._create_model_assignment(role_names, assigned_models)
+        # Ensure 'roles' is a dict (handle case where it might be None)
         if 'roles' not in config_dict or config_dict['roles'] is None:
             config_dict['roles'] = {}
-        config_dict['roles'].update(roles_config)
+        config_dict['roles'].update(
+            {name: {'model_name': model} for name, model in zip(role_names, assigned_models)}
+        )
     
-    def _get_model_config(self, indexed_role: str, base_role: str) -> Dict[str, Any]:
-        """Override to get model from arena assignment.
+    def _select_models(self, num_roles: int, weights: List[float]) -> List[str]:
+        """Select models with weighted sampling without replacement.
         
-        The indexed_role will be like "Merlin_0", "Servant_0", etc.
-        We need to map this back to the player position.
+        Ensures:
+        1. Diversity: No duplicate models in a single game (when possible)
+        2. Fairness: Models with fewer games have higher selection probability
+        3. Balance: Long-term game count distribution is balanced
         """
-        # Get the arena model assignment
-        assigned_models = self.config_dict.get('_arena_model_assignment', [])
-        
-        # Try to extract player index from indexed_role or base_role
-        # indexed_role format: "RoleName_0", "RoleName_1", etc.
-        # We need to find which player position this role corresponds to
-        if not assigned_models:
-            # Fallback to parent method
-            return super()._get_model_config(indexed_role, base_role)
-        
-        # Get role manager to find player index
-        if self.role_manager is None:
-            # Role manager not initialized yet, use parent method
-            return super()._get_model_config(indexed_role, base_role)
-        
-        # Find player index for this role
-        player_index = None
-        for i in range(len(assigned_models)):
-            if self.role_manager.get_indexed_role(i) == indexed_role:
-                player_index = i
-                break
-        
-        if player_index is not None and player_index < len(assigned_models):
-            # Get model name from assignment
-            model_name = assigned_models[player_index]
+        if len(self.arena_models) >= num_roles:
+            # Weighted sampling without replacement for maximum diversity
+            # Use weighted random selection to ensure both diversity and fairness
+            assigned = []
+            remaining_models = list(self.arena_models)
+            remaining_weights = list(weights)
             
-            # Build config with this model
-            default_model = self.config_dict.get('default_model', {})
-            config = copy.deepcopy({**default_model})
-            config['model_name'] = model_name
-            return config
+            for _ in range(num_roles):
+                if not remaining_models:
+                    break
+                
+                # Normalize remaining weights
+                total_weight = sum(remaining_weights)
+                if total_weight > 0:
+                    normalized_weights = [w / total_weight for w in remaining_weights]
+                else:
+                    normalized_weights = [1.0 / len(remaining_models)] * len(remaining_models)
+                
+                # Select one model based on weights
+                selected_idx = random.choices(range(len(remaining_models)), weights=normalized_weights, k=1)[0]
+                assigned.append(remaining_models.pop(selected_idx))
+                remaining_weights.pop(selected_idx)
+            
+            # Shuffle to randomize positions
+            random.shuffle(assigned)
+        else:
+            # Not enough models: use all models + weighted selection for remaining
+            assigned = list(self.arena_models)
+            remaining = num_roles - len(assigned)
+            if remaining > 0:
+                # Use weighted random selection for remaining slots (allows duplicates)
+                assigned.extend(random.choices(self.arena_models, weights=weights, k=remaining))
+            random.shuffle(assigned)
         
-        # Fallback to parent method
-        return super()._get_model_config(indexed_role, base_role)
+        return assigned
     
     async def _execute_async(self) -> Dict[str, Any]:
         """Execute game and add model information to results."""
         result = await super()._execute_async()
+        if model_assignment := self.config_dict.get('_arena_model_assignment'):
+            self._add_models_to_results(result, model_assignment)
         
-        # Add model assignment to result for leaderboard calculation
-        assigned_models = self.config_dict.get('_arena_model_assignment', [])
-        if assigned_models and 'roles' in result:
-            # Add model_name to each role in results
-            for i, role_info in enumerate(result['roles']):
-                if i < len(assigned_models):
-                    role_info['model_name'] = assigned_models[i]
+        # Add language information to result
+        game_config = self.config_dict.get('game', {})
+        result['language'] = game_config.get('language', 'en')
         
         return result
-
-
-# Register Avalon arena workflow
-register_arena_workflow("avalon")(ArenaAvalonWorkflow)
-
-
-# Diplomacy arena workflow (lazy-loaded to avoid import issues)
-def _register_diplomacy_workflow():
-    """Register Diplomacy arena workflow (lazy-loaded)."""
-    from games.games.diplomacy.workflows.eval_workflow import EvalDiplomacyWorkflow
     
-    class ArenaDiplomacyWorkflow(EvalDiplomacyWorkflow):
-        """Arena workflow for Diplomacy that randomly assigns models to powers."""
+    @abstractmethod
+    def _get_role_names(self, config_dict: Dict[str, Any]) -> List[str]:
+        """Get list of role names for this game."""
+        pass
+    
+    @abstractmethod
+    def _create_model_assignment(self, role_names: List[str], assigned_models: List[str]) -> Union[List[str], Dict[str, str]]:
+        """Create model assignment structure."""
+        pass
+    
+    @abstractmethod
+    def _add_models_to_results(self, result: Dict[str, Any], model_assignment: Union[List[str], Dict[str, str]]):
+        """Add model information to game results."""
+        pass
+
+
+def _register_avalon_workflow():
+    """Lazy-load Avalon arena workflow."""
+    from games.games.avalon.workflows.eval_workflow import EvalAvalonWorkflow
+    
+    @register_arena_workflow("avalon")
+    class ArenaAvalonWorkflow(BaseArenaWorkflow, EvalAvalonWorkflow):
+        """Arena workflow for Avalon with random model assignment."""
         
         def __init__(self, config_dict: Dict[str, Any]):
-            """Initialize arena workflow.
-            
-            Args:
-                config_dict: Configuration dictionary. Must contain 'arena' key with:
-                    - models: List of model names to use
-                    - seed: Optional random seed for reproducibility
-            """
-            # Extract arena config
-            arena_config = config_dict.get('arena', {})
-            self.arena_models = arena_config.get('models', [])
-            if not self.arena_models:
-                raise ValueError("arena.models must be specified in config")
-            
-            # Set random seed if provided
-            seed = arena_config.get('seed')
-            if seed is not None:
-                random.seed(seed)
-            
-            # Store original config and modify roles for this game
-            self.original_config = copy.deepcopy(config_dict)
-            self._assign_models_to_powers(config_dict)
-            
-            # Initialize parent class with modified config
+            self._initialize_arena(config_dict)
             super().__init__(config_dict)
         
-        def _assign_models_to_powers(self, config_dict: Dict[str, Any]):
-            """Assign models to powers with fairness consideration and diversity.
-            
-            This modifies config_dict['roles'] to map power names to models.
-            
-            Prioritizes model diversity (no duplicates when possible):
-            - If we have enough models, uses sampling without replacement
-            - If we need more models than available, fills remaining slots with weighted random selection
-            - Uses weighted random selection to ensure fair distribution.
-            """
-            game_config = config_dict.get('game', {})
-            power_names = game_config.get('power_names', ["AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"])
-            num_powers = len(power_names)
-            
-            # Get game counts for fairness (if available from leaderboard_db)
-            game_counts = config_dict.get('_model_game_counts', {})
-            
-            # Calculate weights: inverse of game count (models with fewer games get higher weight)
-            # Add 1 to avoid division by zero
-            weights = [1.0 / (game_counts.get(model, 0) + 1) for model in self.arena_models]
-            
-            # Normalize weights
-            total_weight = sum(weights)
-            if total_weight > 0:
-                weights = [w / total_weight for w in weights]
-            else:
-                # Equal weights if no game counts available
-                weights = [1.0 / len(self.arena_models)] * len(self.arena_models)
-            
-            # Prioritize diversity: use sampling without replacement when possible
-            if len(self.arena_models) >= num_powers:
-                # We have enough models, use weighted sampling without replacement
-                # Create a list of (model, weight) pairs and sort by weight (descending)
-                model_weight_pairs = list(zip(self.arena_models, weights))
-                # Shuffle to add randomness while respecting weights
-                random.shuffle(model_weight_pairs)
-                # Sort by weight (descending) to prioritize models with fewer games
-                model_weight_pairs.sort(key=lambda x: x[1], reverse=True)
-                # Take first num_powers models (diverse selection)
-                assigned_models = [model for model, _ in model_weight_pairs[:num_powers]]
-                # Shuffle the assignment to randomize positions
-                random.shuffle(assigned_models)
-            else:
-                # Not enough models, first assign all unique models, then fill remaining
-                assigned_models = list(self.arena_models)  # Start with all models
-                remaining = num_powers - len(assigned_models)
-                if remaining > 0:
-                    # Fill remaining slots with weighted random selection (with replacement)
-                    additional = random.choices(self.arena_models, weights=weights, k=remaining)
-                    assigned_models.extend(additional)
-                    # Shuffle to randomize positions
-                    random.shuffle(assigned_models)
-            
-            # Create roles config mapping power names to models
-            roles_config = {}
-            for power_name, model in zip(power_names, assigned_models):
-                roles_config[power_name] = {'model_name': model}
-            
-            # Store the assignment for later retrieval
-            config_dict['_arena_model_assignment'] = dict(zip(power_names, assigned_models))
-            
-            # Update roles config
-            if 'roles' not in config_dict or config_dict['roles'] is None:
-                config_dict['roles'] = {}
-            config_dict['roles'].update(roles_config)
+        def _get_role_names(self, config_dict: Dict[str, Any]) -> List[str]:
+            num_players = config_dict.get('game', {}).get('num_players', 5)
+            return [f'player_{i}' for i in range(num_players)]
         
-        async def _execute_async(self) -> Dict[str, Any]:
-            """Execute game and add model information to results."""
-            result = await super()._execute_async()
-            
-            # Add model assignment to result for leaderboard calculation
-            assigned_models = self.config_dict.get('_arena_model_assignment', {})
-            if assigned_models and 'roles' in result:
-                # Add model_name to each role in results
-                for role_info in result['roles']:
-                    power_name = role_info.get('role_name', '')
-                    if power_name in assigned_models:
-                        role_info['model_name'] = assigned_models[power_name]
-            
-            return result
+        def _create_model_assignment(self, role_names: List[str], assigned_models: List[str]) -> List[str]:
+            return assigned_models
+        
+        def _get_model_config(self, indexed_role: str, base_role: str) -> Dict[str, Any]:
+            """Map runtime role back to assigned model."""
+            assigned_models = self.config_dict.get('_arena_model_assignment', [])
+            if assigned_models and self.role_manager:
+                for i, model_name in enumerate(assigned_models):
+                    if self.role_manager.get_indexed_role(i) == indexed_role:
+                        default_role = self.config_dict.get('default_role', {})
+                        config = copy.deepcopy(default_role.get('model', {}) if isinstance(default_role, dict) else {})
+                        config['model_name'] = model_name
+                        return config
+            return super()._get_model_config(indexed_role, base_role)
+        
+        def _add_models_to_results(self, result: Dict[str, Any], model_assignment: List[str]):
+            if 'roles' in result:
+                for i, role_info in enumerate(result['roles']):
+                    if i < len(model_assignment):
+                        role_info['model_name'] = model_assignment[i]
     
-    register_arena_workflow("diplomacy")(ArenaDiplomacyWorkflow)
+    return ArenaAvalonWorkflow
+
+
+def _register_diplomacy_workflow():
+    """Lazy-load Diplomacy arena workflow."""
+    from games.games.diplomacy.workflows.eval_workflow import EvalDiplomacyWorkflow
+    
+    @register_arena_workflow("diplomacy")
+    class ArenaDiplomacyWorkflow(BaseArenaWorkflow, EvalDiplomacyWorkflow):
+        """Arena workflow for Diplomacy with random model assignment."""
+        
+        def __init__(self, config_dict: Dict[str, Any]):
+            self._initialize_arena(config_dict)
+            super().__init__(config_dict)
+        
+        def _get_role_names(self, config_dict: Dict[str, Any]) -> List[str]:
+            return config_dict.get('game', {}).get('power_names', 
+                ["AUSTRIA", "ENGLAND", "FRANCE", "GERMANY", "ITALY", "RUSSIA", "TURKEY"])
+        
+        def _create_model_assignment(self, role_names: List[str], assigned_models: List[str]) -> Dict[str, str]:
+            return dict(zip(role_names, assigned_models))
+        
+        def _get_model_config(self, power_name: str) -> Dict[str, Any]:
+            """Override to get model from arena assignment."""
+            model_assignment = self.config_dict.get('_arena_model_assignment', {})
+            if isinstance(model_assignment, dict) and power_name in model_assignment:
+                model_name = model_assignment[power_name]
+                # Get base model config from default_role.model
+                default_role = self.config_dict.get('default_role', {})
+                if not isinstance(default_role, dict):
+                    default_role = {}
+                base_model_config = default_role.get('model', {})
+                # Deep copy and update with arena-assigned model name
+                config = copy.deepcopy(base_model_config)
+                config['model_name'] = model_name
+                return config
+            # Fallback to parent method
+            return super()._get_model_config(power_name)
+        
+        def _add_models_to_results(self, result: Dict[str, Any], model_assignment: Dict[str, str]):
+            if 'roles' in result:
+                for role_info in result['roles']:
+                    if (power_name := role_info.get('role_name')) in model_assignment:
+                        role_info['model_name'] = model_assignment[power_name]
+    
     return ArenaDiplomacyWorkflow
 
 
-# Lazy load Diplomacy workflow when needed
-def _ensure_diplomacy_registered():
-    """Ensure Diplomacy workflow is registered (lazy loading)."""
-    if "diplomacy" not in ARENA_WORKFLOW_REGISTRY:
-        _register_diplomacy_workflow()
+# Registry of lazy-load functions
+_LAZY_LOADERS = {
+    "avalon": _register_avalon_workflow,
+    "diplomacy": _register_diplomacy_workflow,
+}
 
 
 def create_arena_workflow(game_name: str, config_dict: Dict[str, Any]):
-    """Factory function to create arena workflow for a game.
-    
-    Args:
-        game_name: Name of the game (e.g., 'avalon', 'diplomacy')
-        config_dict: Configuration dictionary
-    
-    Returns:
-        Arena workflow instance
-    
-    Raises:
-        ValueError: If game_name is not registered
-    """
-    # Lazy load Diplomacy if needed
-    if game_name == "diplomacy":
-        _ensure_diplomacy_registered()
+    """Factory function to create arena workflow for a game."""
+    # Lazy-load workflow if not registered
+    if game_name not in ARENA_WORKFLOW_REGISTRY and game_name in _LAZY_LOADERS:
+        _LAZY_LOADERS[game_name]()
     
     if game_name not in ARENA_WORKFLOW_REGISTRY:
-        available = ', '.join(ARENA_WORKFLOW_REGISTRY.keys())
-        raise ValueError(
-            f"Game '{game_name}' not found in arena registry. "
-            f"Available games: {available}"
-        )
+        available = ', '.join(list(ARENA_WORKFLOW_REGISTRY.keys()) + list(_LAZY_LOADERS.keys()))
+        raise ValueError(f"Game '{game_name}' not found in arena registry. Available: {available}")
     
-    workflow_class = ARENA_WORKFLOW_REGISTRY[game_name]
-    return workflow_class(config_dict=config_dict)
-
+    return ARENA_WORKFLOW_REGISTRY[game_name](config_dict=config_dict)

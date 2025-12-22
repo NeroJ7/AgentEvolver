@@ -29,10 +29,10 @@ game:
     - RUSSIA
     - TURKEY
   map_name: standard
-  max_phases: 12
+  max_phases: 20
   negotiation_rounds: 3
   seed: 42
-  language: zh  # zh: Chinese, en: English
+  language: en  # zh: Chinese, en: English
   log_dir: logs
 
 # Power-specific configuration (empty by default, can be overridden in child configs)

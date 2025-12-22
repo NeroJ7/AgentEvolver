@@ -273,28 +273,37 @@ def parse_negotiation_messages(raw: str, power_name: str, power_names: List[str]
     
     return parsed_msgs
 
-def order_to_natural_language(order: str) -> str:
+def order_to_natural_language(order: str, language: str = "en") -> str:
     """
-    将标准的 Diplomacy 指令字符串转换为中文自然语言描述。
+    Convert standard Diplomacy order string to natural language description.
+    
+    Args:
+        order: Standard Diplomacy order string (e.g., "A PAR - MAR")
+        language: Language code ("en" for English, "zh" for Chinese)
+    
+    Returns:
+        Natural language description of the order
     """
+    is_zh = language.lower() in ["zh", "cn"]
+    
     if ' S ' in order:
         unit, target = order.split(' S ', 1)
-        return f"{unit} 支援 {target}"
+        return f"{unit} {'支援' if is_zh else 'supports'} {target}"
     elif ' C ' in order:
         unit, target = order.split(' C ', 1)
-        return f"{unit} 护送 {target}"
+        return f"{unit} {'护送' if is_zh else 'convoys'} {target}"
     elif ' - ' in order:
         unit, dest = order.split(' - ', 1)
-        return f"{unit} 移动到 {dest}"
+        return f"{unit} {'移动到' if is_zh else 'moves to'} {dest}"
     elif order.endswith(' H'):
-        return f"{order[:-2]} 原地驻守"
+        return f"{order[:-2]} {'原地驻守' if is_zh else 'holds'}"
     elif ' R ' in order:
         unit, dest = order.split(' R ', 1)
-        return f"{unit} 撤退到 {dest}"
+        return f"{unit} {'撤退到' if is_zh else 'retreats to'} {dest}"
     elif ' D' in order:
-        return f"{order.replace(' D', '')} 解散"
+        return f"{order.replace(' D', '')} {'解散' if is_zh else 'disbands'}"
     elif ' B' in order:
-        return f"{order.replace(' B', '')} 募集"
+        return f"{order.replace(' B', '')} {'募集' if is_zh else 'builds'}"
     return order
 
 

@@ -163,11 +163,15 @@ class LeaderboardDB:
                             self.data['models'][model_b]['elo'] = new_elo_b
                 
                     # Record game in history
-                    self.data['games_history'].append({
+                    history_entry = {
                         'timestamp': datetime.now().isoformat(),
                         'models': list(game_models.keys()),
                         'results': {m: info['score'] for m, info in game_models.items()}
-                    })
+                    }
+                    # Add language if available in result
+                    if 'language' in result:
+                        history_entry['language'] = result['language']
+                    self.data['games_history'].append(history_entry)
             
             # Save after all updates (inside lock)
             self.data['updated_at'] = datetime.now().isoformat()
@@ -179,11 +183,32 @@ class LeaderboardDB:
         with self._lock:
             return list(self.data['models'].keys())
     
-    def get_model_game_counts(self) -> Dict[str, int]:
-        """Get game count for each model (for fair assignment) - thread-safe."""
+    def get_model_game_counts(self, model_list: Optional[List[str]] = None) -> Dict[str, int]:
+        """Get game count for models (for fair assignment) - thread-safe.
+        
+        Args:
+            model_list: Optional list of specific models to get counts for.
+                       If None, returns counts for all models in database.
+                       Models not in database will have count 0.
+        
+        Returns:
+            Dictionary mapping model names to their game counts
+        """
         with self._lock:
-            return {model: self.data['models'][model]['total_games'] 
-                    for model in self.data['models'].keys()}
+            if model_list is None:
+                # Return all models in database
+                return {model: self.data['models'][model]['total_games'] 
+                        for model in self.data['models'].keys()}
+            else:
+                # Return counts for specific models, ensuring all are included
+                counts = {}
+                for model in model_list:
+                    if model in self.data['models']:
+                        counts[model] = self.data['models'][model]['total_games']
+                    else:
+                        # Model not in database yet, return 0
+                        counts[model] = 0
+                return counts
     
     def get_min_game_count(self) -> int:
         """Get minimum game count among all models."""
