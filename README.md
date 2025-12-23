@@ -25,8 +25,10 @@ improve their capabilities, aiming for efficient, cost-effective, and continuous
 
 
 ## 📰 News
+
+- **[2025-12]** 🎮 [AgentEvolver Game Arena](games/README.md) released — a multi-agent social reasoning arena for interaction, evaluation, and training in games like Avalon and Diplomacy.
 - **[2025-12]** 📢 New preprint [CuES](https://www.arxiv.org/abs/2512.01311) on an extended self-questioning method released with [code](research/CuES/README.md).
-- **[2025-11]** 📄 [The AgentEvolver Technical Report is now available](https://arxiv.org/abs/2511.10395), detailing the framework’s architecture, methodology, and key findings.
+- **[2025-11]** 📄 [The AgentEvolver Technical Report is now available](https://arxiv.org/abs/2511.10395), detailing the framework's architecture, methodology, and key findings.
 - **[2025-11]** 🧩 AgentEvolver v1 has been released now!
 
 
@@ -126,6 +128,44 @@ python launcher.py --conf examples/basic.yaml --with-appworld
 # option 2: full example with ReMe (questioning + navigating + attributing)
 python launcher.py --conf examples/overall.yaml --with-appworld --with-reme
 ```
+
+Alternatively, you can use bash scripts for manual execution: `bash examples/run_basic.sh` or `bash examples/run_overall.sh`. See [Advanced Usage](#-advanced-usage) for more details.
+
+
+
+## 🎮 AgentEvolver Game Arena
+
+**[AgentEvolver Game Arena](games/README.md)** extends **AgentEvolver** into **multi-agent social game environments**, providing a unified arena for **interaction, evaluation, and training** of AI agents in long-horizon social reasoning tasks.
+
+Key capabilities include:
+- **Web-based interaction** – Observe AI agents' reasoning and communication in real time, or participate as a human player.
+- **Scalable evaluation** – Run large-scale self-play or mixed-model tournaments with configurable settings and leaderboards.
+- **End-to-end training support** – Train LLM agents directly within social game environments using reinforcement learning–based methods (e.g., GRPO).
+
+**Web Interface Demo:**
+
+<table style="border: none; border-collapse: collapse;">
+<tr>
+<td align="center" width="50%" style="border: none; text-align: center;">
+  <img src="docs/img/games/avalon_demo_extracted.gif" alt="Avalon Demo" width="100%" />
+  <br><strong>Avalon</strong>
+</td>
+<td align="center" width="50%" style="border: none; text-align: center;">
+  <img src="docs/img/games/diplomacy_demo_extracted.gif" alt="Diplomacy Demo" width="100%" />
+  <br><strong>Diplomacy</strong>
+</td>
+</tr>
+</table>
+
+**Training Example:** Training curve for the assassin role in Avalon
+
+<p align="center">
+<img src="docs/img/games/training_curve.jpg" alt="Training Curve" width="80%">
+</p>
+
+For detailed documentation, quick start guides, and configuration examples, see the **[Game Arena README](games/README.md)**.
+
+
 
 ## 🧩 Advanced Usage
 

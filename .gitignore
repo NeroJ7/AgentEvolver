@@ -11,12 +11,15 @@
 **/*.tar.gz
 **/wandb
 **/__pycache__/
+# NFS temporary files
+**/.nfs*
 
 # Outputs and logs (more specific rules)
 **/outputs/
 !**/outputs/README.md  # Keep important README files
 **/logs/
 **/log/
+**/results/
 python_log/
 experiments/
 

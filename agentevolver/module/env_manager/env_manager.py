@@ -1,5 +1,6 @@
 import copy
 import time
+import json
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from typing import Dict, List, Literal, Tuple
 
@@ -20,6 +21,7 @@ from verl.utils.torch_functional import (pad_sequence_to_length)
 from agentevolver.module.agent_flow.agent_flow import AgentFlow
 from agentevolver.module.agent_flow.base_agent_flow import BaseAgentFlow
 from agentevolver.module.env_manager.env_worker import EnvWorker
+from agentevolver.utils.agentscope_utils import dynamic_import
 from agentevolver.module.trainer.ae_async_llm_server_manager import BaAsyncLLMServerManager
 from agentevolver.module.task_manager.rewards import grader_manager
 from agentevolver.schema.task import Task
@@ -47,7 +49,6 @@ def init_logger(experiment_name):
     register_logger(mods=["evaluation", "exception"], non_console_mods=non_console_mods, auto_clean_mods=[], base_log_path=final_log_path, debug=False)
     print('Run `beast_logger_go` and click the url to inspect rollout logs. Continue in 5 seconds')
     time.sleep(2.5)
-
 
 
 class ParallelEnvManager(object):
@@ -225,6 +226,10 @@ class ParallelEnvManager(object):
                            thread_index: int, tmux: dict, stop:list, **kwargs) -> Trajectory:
         """
         Processes a single task in a thread-safe way, handling retries and exceptions.
+        
+        This method supports two modes:
+        1. Agentscope workflow mode: If agentscope_workflow is configured, uses agentscope workflow
+        2. Standard env worker mode: Otherwise, uses the standard EnvWorker with AgentFlow
 
         Args:
             task (Task): The task to be processed.
@@ -243,13 +248,14 @@ class ParallelEnvManager(object):
         max_retry = 4
         for retry in range(max_retry):
             try:
-
-                # TODO add try exception
+                # Prepare sampling parameters
                 sampling_params = dict(
                     n=1,
                     max_completion_tokens=self.rollout_config.response_length,
                     temperature=self.rollout_config.temperature,
-                    top_p=self.rollout_config.top_p)
+                    top_p=self.rollout_config.top_p,
+                    # chat_template_kwargs={"enable_thinking": False}
+                )
 
                 if mode == "validate":
                     sampling_params["temperature"] = self.rollout_config.val_kwargs.temperature
@@ -257,18 +263,43 @@ class ParallelEnvManager(object):
                     sampling_params["top_p"] = self.rollout_config.val_kwargs.top_p
 
                 llm_chat_fn = self.get_llm_chat_fn(sampling_params)
-                reward_caculator=grader_manager.get_calculator(task.evaluator, task=task)
-                agent_flow: BaseAgentFlow = AgentFlow(
-                    reward_calculator=reward_caculator,
-                    llm_chat_fn=llm_chat_fn,
-                    tokenizer=self.tokenizer,
-                    config=self.config,
-                    **kwargs
-                )
+                
+                # Check if agentscope_workflow is configured
+                workflow_import = self.config.actor_rollout_ref.rollout.get("agentscope_workflow", None)
+                
+                if workflow_import is not None:
+                    # Use agentscope workflow mode
+                    workflow_cls = dynamic_import(workflow_import)
+                    
+                    # Instantiate workflow with llm_chat_fn, config, tokenizer, data_id, and rollout_id
+                    workflow = workflow_cls(
+                        task=task,
+                        llm_chat_fn=llm_chat_fn,
+                        model_name=self.model_name,
+                        config=self.config,
+                        tokenizer=self.tokenizer,
+                        data_id=data_id,
+                        rollout_id=rollout_id,
+                        **kwargs
+                    )
+                    
+                    # Execute the workflow
+                    trajectory: Trajectory = workflow.execute()
+                    return trajectory
+                else:
+                    # Use standard env worker mode
+                    reward_caculator = grader_manager.get_calculator(task.evaluator, task=task)
+                    agent_flow: BaseAgentFlow = AgentFlow(
+                        reward_calculator=reward_caculator,
+                        llm_chat_fn=llm_chat_fn,
+                        tokenizer=self.tokenizer,
+                        config=self.config,
+                        **kwargs
+                    )
 
-                env_worker = EnvWorker(task=task, thread_index=thread_index, config=self.config, tokenizer=self.tokenizer)
-                trajectory: Trajectory = env_worker.execute(data_id=data_id, rollout_id=rollout_id, traj_exp_config=traj_exp_config, agent_flow=agent_flow, tmux=tmux, stop=stop) # ⭐ Execute the task and generate the trajectory
-                return trajectory
+                    env_worker = EnvWorker(task=task, thread_index=thread_index, config=self.config, tokenizer=self.tokenizer)
+                    trajectory: Trajectory = env_worker.execute(data_id=data_id, rollout_id=rollout_id, traj_exp_config=traj_exp_config, agent_flow=agent_flow, tmux=tmux, stop=stop) # ⭐ Execute the task and generate the trajectory
+                    return trajectory
 
             except Exception as e:
                 if retry < max_retry - 1:
@@ -277,6 +308,7 @@ class ParallelEnvManager(object):
                 else:
                     logger.bind(exception=True).exception(f"rollout_env_worker failed after {max_retry} retries: {e.args}")
                     raise e
+
 
     def rollout(self, tasks: List[Task], task_exp_configs: List[TaskExpConfig], mode: Literal["sample", "validate"], epoch: str) -> List[Trajectory]:
         """
@@ -294,6 +326,14 @@ class ParallelEnvManager(object):
         traj_cmt_array = []
         rollout_n = self.rollout_config.val_kwargs.n if mode == "validate" else self.rollout_n
         future_to_params: Dict[Future, Tuple[Task, TrajExpConfig, str, str, str, int, dict, list[bool]]] = {}
+
+        # Make epoch available to agentscope workflows (without changing rollout_env_worker behavior)
+        # This enables workflows to organize logs under logs/{experiment_name}/{epoch}/...
+        for task in tasks:
+            if task.metadata is None:
+                task.metadata = {}
+            # Don't overwrite if caller already provided something custom
+            task.metadata.setdefault("epoch", epoch)
 
         tmux = {
             'step': [0 for _ in range(len(tasks) * rollout_n)],
